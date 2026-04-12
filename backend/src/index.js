@@ -100,8 +100,8 @@ async function handleApiRequest(request, env, ctx) {
           
           // --- D1 Database ---
           d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs", period: "總額" },
-          d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_read) * 100).toFixed(2), unit: "Rows", period: "日結算" },
-          d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_written) * 100).toFixed(2), unit: "Rows", period: "日結算" },
+          d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows", period: "日結算" },
+          d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows", period: "日結算" },
           // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
           // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB", period: "總額" },
           
