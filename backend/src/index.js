@@ -90,12 +90,24 @@ async function fetchCloudflareUsage(apiToken, accountId) {
           workersInvocationsAdaptive(limit: 1000, filter: {date: $date}) {
             sum { requests }
           }
+          d1QueriesAdaptiveGroups(limit: 1000, filter: {date: $date}) {
+            sum { rowsRead, rowsWritten }
+          }
+          r2OperationsAdaptiveGroups(limit: 10000, filter: {date: $date}) {
+            dimensions { actionType }
+            sum { requests }
+          }
         }
       }
     }
   `;
 
   let workersRequests = 0;
+  let d1RowsRead = 0;
+  let d1RowsWritten = 0;
+  let r2ClassA = 0;
+  let r2ClassB = 0;
+
   try {
     const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
@@ -103,16 +115,40 @@ async function fetchCloudflareUsage(apiToken, accountId) {
       body: JSON.stringify({ query, variables: { accountId, date: dateStr } })
     });
     const json = await res.json();
-    workersRequests = json?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive?.[0]?.sum?.requests || 0;
-  } catch (err) {}
+    const accountData = json?.data?.viewer?.accounts?.[0];
 
-  // 其他服務目前以 0 或隨機佔位，你可以根據需求串接對應 API
+    // 解析 Workers 請求
+    workersRequests = accountData?.workersInvocationsAdaptive?.[0]?.sum?.requests || 0;
+    
+    // 解析 D1 (讀/寫 Rows 數值計算)
+    const d1Sum = accountData?.d1QueriesAdaptiveGroups?.[0]?.sum;
+    if (d1Sum) {
+      d1RowsRead = d1Sum.rowsRead || 0;
+      d1RowsWritten = d1Sum.rowsWritten || 0;
+    }
+
+    // 解析 R2 (需根據 actionType 屬性分類 Class A 及 Class B 操作量)
+    const r2Ops = accountData?.r2OperationsAdaptiveGroups || [];
+    for (const op of r2Ops) {
+      const action = op.dimensions?.actionType;
+      const reqs = op.sum?.requests || 0;
+      if (["PutObject", "ListObjects", "PutBucket", "CopyObject", "CompleteMultipartUpload", "CreateMultipartUpload", "ListMultipartUploads", "UploadPart", "UploadPartCopy", "ListParts", "PutBucketEncryption", "PutBucketCors", "PutBucketLifecycleConfiguration", "ListBuckets"].includes(action)) {
+        r2ClassA += reqs;
+      } else if (["GetObject", "HeadObject", "HeadBucket", "GetBucketEncryption", "GetBucketLocation", "GetBucketCors", "GetBucketLifecycleConfiguration", "UsageSummary"].includes(action)) {
+        r2ClassB += reqs;
+      }
+    }
+  } catch (err) {
+    console.error("fetchCloudflareUsage failed:", err);
+  }
+
+  // KV 因使用量可能目前為 0，此處暫維持佔位於前端正常顯示即可
   return {
     workers_requests: workersRequests,
-    d1_rows_read: 0, 
-    d1_rows_written: 0,
-    r2_class_a_ops: 0,
-    r2_class_b_ops: 0,
+    d1_rows_read: d1RowsRead, 
+    d1_rows_written: d1RowsWritten,
+    r2_class_a_ops: r2ClassA,
+    r2_class_b_ops: r2ClassB,
     kv_read: 0,
     kv_write: 0,
     kv_delete: 0,
@@ -165,6 +201,8 @@ function getHtmlContent() {
         .progress-bar.danger { background: linear-gradient(90deg, #fca5a5, var(--accent-red)); }
         .stats-row { display: flex; justify-content: space-between; }
         .stat-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.25rem; }
+        .category-container { margin-bottom: 2.5rem; }
+        .category-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: var(--text-primary); padding-bottom: 0.5rem; border-bottom: 1px solid var(--card-border); }
         .hidden { display: none !important; }
     </style>
 </head>
@@ -176,7 +214,7 @@ function getHtmlContent() {
             <div><h1>Cloudflare 資源用量</h1><p style="color:var(--text-secondary)">即時監控</p></div>
             <div class="last-updated">最後更新：<span id="update-time">載入中...</span></div>
         </header>
-        <main class="grid-container" id="dashboard-data">
+        <main id="dashboard-data">
             <p>正在從 Worker 獲取最新實時數據...</p>
         </main>
     </div>
@@ -192,25 +230,44 @@ function getHtmlContent() {
         function render(data) {
             const container = document.getElementById("dashboard-data");
             container.innerHTML = "";
-            Object.values(data).forEach(item => {
-                const perc = parseFloat(item.percentage);
-                let statusClass = "";
-                if (perc >= 95) statusClass = "danger";
-                else if (perc >= 80) statusClass = "warning";
+            
+            // 梳理指標的分類：將 9 個指標分組 (Workers, D1, R2, KV)
+            const categories = {
+                "Workers": [data.workers_requests],
+                "D1": [data.d1_read, data.d1_written],
+                "R2": [data.r2_class_a, data.r2_class_b],
+                "KV": [data.kv_read, data.kv_write, data.kv_delete, data.kv_list]
+            };
+
+            for (const [category, items] of Object.entries(categories)) {
+                let sectionContent = \`<div class="category-container">\`;
+                sectionContent += \`<h2 class="category-title">\${category}</h2>\`;
+                sectionContent += \`<div class="grid-container">\`;
                 
-                container.innerHTML += \`
-                    <div class="glass-card">
-                        <div class="card-header">
-                            <span style="font-weight:600">\${item.name}</span>
-                            <span class="percentage-badge" style="\${perc >= 80 ? 'color:white; border-color:transparent; background:red' : ''}">\${perc}%</span>
-                        </div>
-                        <div class="progress-track"><div class="progress-bar \${statusClass}" style="width:\${Math.min(perc, 100)}%"></div></div>
-                        <div class="stats-row">
-                            <div><div class="stat-label">已使用</div><div>\${Number(item.used).toLocaleString()} \${item.unit}</div></div>
-                            <div style="text-align:right"><div class="stat-label">額度</div><div>\${Number(item.limit).toLocaleString()} \${item.unit}</div></div>
-                        </div>
-                    </div>\`;
-            });
+                items.forEach(item => {
+                    if (!item) return;
+                    const perc = parseFloat(item.percentage);
+                    let statusClass = "";
+                    if (perc >= 95) statusClass = "danger";
+                    else if (perc >= 80) statusClass = "warning";
+                    
+                    sectionContent += \`
+                        <div class="glass-card">
+                            <div class="card-header">
+                                <span style="font-weight:600">\${item.name}</span>
+                                <span class="percentage-badge" style="\${perc >= 80 ? 'color:white; border-color:transparent; background:red' : ''}">\${perc}%</span>
+                            </div>
+                            <div class="progress-track"><div class="progress-bar \${statusClass}" style="width:\${Math.min(perc, 100)}%"></div></div>
+                            <div class="stats-row">
+                                <div><div class="stat-label">已使用</div><div>\${Number(item.used).toLocaleString()} \${item.unit}</div></div>
+                                <div style="text-align:right"><div class="stat-label">額度</div><div>\${Number(item.limit).toLocaleString()} \${item.unit}</div></div>
+                            </div>
+                        </div>\`;
+                });
+                
+                sectionContent += \`</div></div>\`;
+                container.innerHTML += sectionContent;
+            }
         }
         loadData();
     </script>
