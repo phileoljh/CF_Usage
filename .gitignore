@@ -1,0 +1,17 @@
+# 專案介紹 / Project explanation
+# 此專案包含 Cloudflare Worker (Backend) 與儀表板 (Frontend)
+# 分開部署，Frontend 也可以放 CF Pages
+
+# Node 模組
+node_modules/
+
+# Cloudflare Wrangler 產生的快取與建置暫存
+.wrangler/
+dist/
+
+# OS 或 IDE 產生的不必要檔案
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

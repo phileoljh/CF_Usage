@@ -1,0 +1,10 @@
+name = "cf-usage-api"
+main = "src/index.js"
+compatibility_date = "2024-03-20"
+
+# 您可以在環境變數中設定您的 ACCOUNT ID
+[vars]
+CLOUDFLARE_ACCOUNT_ID = "" # 在這裡填入您的 Account ID
+
+# API_TOKEN 會透過秘密存放，部署時請執行：
+# npx wrangler secret put CLOUDFLARE_API_TOKEN
