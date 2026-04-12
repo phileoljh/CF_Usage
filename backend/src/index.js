@@ -1,14 +1,13 @@
 // --- 定義免費額度上限 (Quotas) ---
 const QUOTAS = {
   workers_requests: 100000,      // Daily
-  d1_rows_read: 5000000,         // Daily
-  d1_rows_written: 100000,       // Daily
+  // workers_observability: 200000, // Daily (註解：目前 Cloudflare 未開放公開 API，待官方支援後再取消註解使用)
+  // workers_build_minutes: 3000,   // Monthly (註解：由於無法透過單一公開端點精準取得所有相關建置時間，待官方 API 完善支援後再使用)
   r2_class_a_ops: 1000000,       // Monthly
   r2_class_b_ops: 10000000,      // Monthly
-  kv_read: 100000,               // Daily
-  kv_write: 1000,                // Daily
-  kv_delete: 1000,               // Daily
-  kv_list: 1000                  // Daily
+  d1_databases: 10,              // Total
+  d1_rows_read: 5000000,         // Daily
+  d1_rows_written: 100000        // Daily
 };
 
 export default {
@@ -47,15 +46,25 @@ async function handleApiRequest(request, env, ctx) {
       const usage = await fetchCloudflareUsage(env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID);
       
       const dashboardData = {
-        workers_requests: { id: "workers_requests", name: "Workers (請求)", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req" },
-        d1_read: { id: "d1_read", name: "D1 (讀取)", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows" },
-        d1_written: { id: "d1_written", name: "D1 (寫入)", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows" },
-        r2_class_a: { id: "r2_class_a", name: "R2 (Class A)", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops" },
-        r2_class_b: { id: "r2_class_b", name: "R2 (Class B)", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops" },
-        kv_read: { id: "kv_read", name: "KV (讀取)", used: usage.kv_read, limit: QUOTAS.kv_read, percentage: ((usage.kv_read / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req" },
-        kv_write: { id: "kv_write", name: "KV (寫入)", used: usage.kv_write, limit: QUOTAS.kv_write, percentage: ((usage.kv_write / QUOTAS.kv_write) * 100).toFixed(2), unit: "Req" },
-        kv_delete: { id: "kv_delete", name: "KV (刪除)", used: usage.kv_delete, limit: QUOTAS.kv_delete, percentage: ((usage.kv_delete / QUOTAS.kv_delete) * 100).toFixed(2), unit: "Req" },
-        kv_list: { id: "kv_list", name: "KV (列表)", used: usage.kv_list, limit: QUOTAS.kv_list, percentage: ((usage.kv_list / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req" }
+        // --- Workers & Pages ---
+        workers_requests: { id: "workers_requests", name: "Requests today", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req" },
+        // 註解：因 Cloudflare API 尚未開放取得 Observability 數據，故暫不顯示於正式版面，待官方支援後補上
+        // workers_observability: { id: "workers_observability", name: "Observability events today", used: usage.workers_observability || 0, limit: QUOTAS.workers_observability, percentage: (((usage.workers_observability || 0) / QUOTAS.workers_observability) * 100).toFixed(2), unit: "Events" },
+        // 註解：缺乏單點公開 API 能精準統計 Build minutes，容易計算為 0，為避免失真暫時隱藏
+        // workers_build: { id: "workers_build", name: "Workers build minutes this month", used: usage.workers_build || 0, limit: QUOTAS.workers_build_minutes, percentage: (((usage.workers_build || 0) / QUOTAS.workers_build_minutes) * 100).toFixed(2), unit: "Min" },
+        
+        // --- R2 Object Storage ---
+        r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops" },
+        r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops" },
+        // 註解：儲存空間總量 (Total storage) GraphQL 調用較繁瑣且常有落差，隱藏至官方推出易用統計端點
+        // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB" },
+        
+        // --- D1 Database ---
+        d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs" },
+        d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows" },
+        d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows" },
+        // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
+        // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB" }
       };
 
       response = new Response(JSON.stringify({
@@ -133,7 +142,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
       d1RowsWritten = d1Sum.rowsWritten || 0;
     }
 
-    // 解析 R2 (需根據 actionType 屬性分類 Class A 及 Class B 操作量)
+    // 解析 R2
     const r2Ops = accountData?.r2OperationsAdaptiveGroups || [];
     for (const op of r2Ops) {
       const action = op.dimensions?.actionType;
@@ -148,17 +157,29 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     console.error("fetchCloudflareUsage failed:", err);
   }
 
-  // KV 因使用量可能目前為 0，此處暫維持佔位於前端正常顯示即可
+  // 取得 D1 Database 總數量 (REST API)
+  let d1Databases = 0;
+  try {
+    const d1Res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" }
+    });
+    const d1Json = await d1Res.json();
+    if (d1Json.success) d1Databases = d1Json.result.length;
+  } catch(err) {
+    console.error("fetchD1Databases failed:", err);
+  }
+
+  // 回傳前端完整的結構化數據
   return {
     workers_requests: workersRequests,
+    // workers_observability: 0, // 註解說明：Cloudflare API 未開放第三方呼叫 Observability 數據，在 CF 官方正式支援前不用。
+    // workers_build: 0, // 註解說明：Build Minutes 官方無穩定 API，在 CF 官方正式支援前不用。
+    d1_databases: d1Databases, 
     d1_rows_read: d1RowsRead, 
     d1_rows_written: d1RowsWritten,
     r2_class_a_ops: r2ClassA,
-    r2_class_b_ops: r2ClassB,
-    kv_read: 0,
-    kv_write: 0,
-    kv_delete: 0,
-    kv_list: 0
+    r2_class_b_ops: r2ClassB
   };
 }
 
@@ -237,12 +258,11 @@ function getHtmlContent() {
             const container = document.getElementById("dashboard-data");
             container.innerHTML = "";
             
-            // 梳理指標的分類：將 9 個指標分組 (Workers, D1, R2, KV)
+            // 梳理指標的分類：對齊官方儀表板介面的大項目與分類
             const categories = {
-                "Workers": [data.workers_requests],
-                "D1": [data.d1_read, data.d1_written],
-                "R2": [data.r2_class_a, data.r2_class_b],
-                "KV": [data.kv_read, data.kv_write, data.kv_delete, data.kv_list]
+                "Workers & Pages": [data.workers_requests], // workers_observability, workers_build 因無官方API暫時隱藏
+                "R2 Object Storage": [data.r2_class_a, data.r2_class_b], // r2_storage 置換無有效公開 API 暫隱藏
+                "D1 Database": [data.d1_databases, data.d1_read, data.d1_written] // d1_storage 置換無有效公開 API 暫隱藏
             };
 
             for (const [category, items] of Object.entries(categories)) {
