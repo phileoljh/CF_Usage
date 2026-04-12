@@ -7,22 +7,48 @@ const QUOTAS = {
   r2_class_b_ops: 10000000,      // Monthly
   d1_databases: 10,              // Total
   d1_rows_read: 5000000,         // Daily
-  d1_rows_written: 100000        // Daily
+  d1_rows_written: 100000,       // Daily
+  // KV 
+  kv_read: 100000,               // Daily
+  kv_write: 1000,                // Daily
+  kv_delete: 1000,               // Daily
+  kv_list: 1000                  // Daily
 };
+
+// 全域渲染鎖 (防止 Cache Stampede 快取雪崩效應)
+const renderLocks = new Map();
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // ── [新增] 資源耗盡與限流防護 (Rate Limiting) ──
+    const rateLimitRes = await checkRateLimit(request, env);
+    if (rateLimitRes) return withSecurityHeaders(rateLimitRes);
+    // ──────────────────────────────────────────────
+
+    // ── [新增] 惡意掃閱攔截邏輯 ──
+    // 條件一：判斷是否為非標準的 Port (通訊埠)
+    const isUnusualPort = url.port !== "" && url.port !== "80" && url.port !== "443";
+
+    // 條件二：判斷路徑是否以 "/." 開頭 (涵蓋 /.git, /.env 等隱藏檔)
+    const isHiddenFile = url.pathname.startsWith('/.');
+
+    // 若符合任一惡意特徵，直接 301 永久重新導向 (Redirect) 至首頁
+    if (isUnusualPort || isHiddenFile) {
+      return withSecurityHeaders(Response.redirect("https://cfusage.hihimonitor.win/", 301));
+    }
+    // ─────────────────────────────────────
+
     // 路由 1: 獲取 API 資料
     if (url.pathname === "/api/data") {
-      return handleApiRequest(request, env, ctx);
+      return withSecurityHeaders(await handleApiRequest(request, env, ctx));
     }
 
     // 路由 2: 返回整合後的 HTML 頁面
-    return new Response(getHtmlContent(), {
+    return withSecurityHeaders(new Response(getHtmlContent(), {
       headers: { "Content-Type": "text/html;charset=UTF-8" }
-    });
+    }));
   }
 };
 
@@ -42,43 +68,76 @@ async function handleApiRequest(request, env, ctx) {
   let response = await cache.match(cacheKey);
 
   if (!response) {
-    try {
-      const usage = await fetchCloudflareUsage(env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID);
-      
-      const dashboardData = {
-        // --- Workers & Pages ---
-        workers_requests: { id: "workers_requests", name: "Requests today", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req" },
-        // 註解：因 Cloudflare API 尚未開放取得 Observability 數據，故暫不顯示於正式版面，待官方支援後補上
-        // workers_observability: { id: "workers_observability", name: "Observability events today", used: usage.workers_observability || 0, limit: QUOTAS.workers_observability, percentage: (((usage.workers_observability || 0) / QUOTAS.workers_observability) * 100).toFixed(2), unit: "Events" },
-        // 註解：缺乏單點公開 API 能精準統計 Build minutes，容易計算為 0，為避免失真暫時隱藏
-        // workers_build: { id: "workers_build", name: "Workers build minutes this month", used: usage.workers_build || 0, limit: QUOTAS.workers_build_minutes, percentage: (((usage.workers_build || 0) / QUOTAS.workers_build_minutes) * 100).toFixed(2), unit: "Min" },
-        
-        // --- R2 Object Storage ---
-        r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops" },
-        r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops" },
-        // 註解：儲存空間總量 (Total storage) GraphQL 調用較繁瑣且常有落差，隱藏至官方推出易用統計端點
-        // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB" },
-        
-        // --- D1 Database ---
-        d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs" },
-        d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows" },
-        d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows" },
-        // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
-        // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB" }
-      };
-
-      response = new Response(JSON.stringify({
-        updated_at: new Date().toISOString(),
-        data: dashboardData
-      }), {
-        headers: { 
-          "Content-Type": "application/json",
-          "Cache-Control": "s-maxage=900" // 邊緣節點快取 15 分鐘
-        }
+    const cacheKeyUrl = cacheKey.url;
+    
+    // [STAMPEDE 防護] 檢查併發鎖
+    if (renderLocks.has(cacheKeyUrl)) {
+      console.log(`[STAMPEDE 防護] 搭便車！等候並共用 API 獲取結果`);
+      const sharedData = await renderLocks.get(cacheKeyUrl);
+      return new Response(sharedData, {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" }
       });
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    }
+
+    // 第一個進入的請求，建立鎖定
+    const fetchPromise = (async () => {
+      try {
+        const usage = await fetchCloudflareUsage(env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID);
+        
+        const dashboardData = {
+          // --- Workers & Pages ---
+          workers_requests: { id: "workers_requests", name: "Requests today", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req" },
+          // 註解：因 Cloudflare API 尚未開放取得 Observability 數據，故暫不顯示於正式版面，待官方支援後補上
+          // workers_observability: { id: "workers_observability", name: "Observability events today", used: usage.workers_observability || 0, limit: QUOTAS.workers_observability, percentage: (((usage.workers_observability || 0) / QUOTAS.workers_observability) * 100).toFixed(2), unit: "Events" },
+          // 註解：缺乏單點公開 API 能精準統計 Build minutes，容易計算為 0，為避免失真暫時隱藏
+          // workers_build: { id: "workers_build", name: "Workers build minutes this month", used: usage.workers_build || 0, limit: QUOTAS.workers_build_minutes, percentage: (((usage.workers_build || 0) / QUOTAS.workers_build_minutes) * 100).toFixed(2), unit: "Min" },
+          
+          // --- R2 Object Storage ---
+          r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops" },
+          r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops" },
+          // 註解：儲存空間總量 (Total storage) GraphQL 調用較繁瑣且常有落差，隱藏至官方推出易用統計端點
+          // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB" },
+          
+          // --- D1 Database ---
+          d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs" },
+          d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows" },
+          d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows" },
+          // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
+          // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB" },
+          
+          // --- Workers KV ---
+          kv_read: { id: "kv_read", name: "Reads", used: usage.kv_read || 0, limit: QUOTAS.kv_read, percentage: (((usage.kv_read || 0) / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req" },
+          kv_write: { id: "kv_write", name: "Writes", used: usage.kv_write || 0, limit: QUOTAS.kv_write, percentage: (((usage.kv_write || 0) / QUOTAS.kv_write) * 100).toFixed(2), unit: "Req" },
+          kv_delete: { id: "kv_delete", name: "Deletes", used: usage.kv_delete || 0, limit: QUOTAS.kv_delete, percentage: (((usage.kv_delete || 0) / QUOTAS.kv_delete) * 100).toFixed(2), unit: "Req" },
+          kv_list: { id: "kv_list", name: "Lists", used: usage.kv_list || 0, limit: QUOTAS.kv_list, percentage: (((usage.kv_list || 0) / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req" }
+        };
+
+        const resultData = JSON.stringify({
+          updated_at: new Date().toISOString(),
+          data: dashboardData
+        });
+
+        const cacheResponse = new Response(resultData, {
+          headers: { "Content-Type": "application/json", "Cache-Control": "s-maxage=900" }
+        });
+        ctx.waitUntil(cache.put(cacheKey, cacheResponse.clone()));
+        
+        return resultData;
+      } catch (error) {
+        throw error;
+      }
+    })();
+
+    renderLocks.set(cacheKeyUrl, fetchPromise);
+    try {
+      const resultData = await fetchPromise;
+      response = new Response(resultData, {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" }
+      });
     } catch (error) {
       return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+    } finally {
+      renderLocks.delete(cacheKeyUrl);
     }
   }
 
@@ -179,7 +238,11 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     d1_rows_read: d1RowsRead, 
     d1_rows_written: d1RowsWritten,
     r2_class_a_ops: r2ClassA,
-    r2_class_b_ops: r2ClassB
+    r2_class_b_ops: r2ClassB,
+    kv_read: 0,
+    kv_write: 0,
+    kv_delete: 0,
+    kv_list: 0
   };
 }
 
@@ -262,7 +325,8 @@ function getHtmlContent() {
             const categories = {
                 "Workers & Pages": [data.workers_requests], // workers_observability, workers_build 因無官方API暫時隱藏
                 "R2 Object Storage": [data.r2_class_a, data.r2_class_b], // r2_storage 置換無有效公開 API 暫隱藏
-                "D1 Database": [data.d1_databases, data.d1_read, data.d1_written] // d1_storage 置換無有效公開 API 暫隱藏
+                "D1 Database": [data.d1_databases, data.d1_read, data.d1_written], // d1_storage 置換無有效公開 API 暫隱藏
+                "Workers KV": [data.kv_read, data.kv_write, data.kv_delete, data.kv_list]
             };
 
             for (const [category, items] of Object.entries(categories)) {
@@ -300,4 +364,56 @@ function getHtmlContent() {
 </body>
 </html>
   `;
+}
+
+// ── 安全性輔助工具 ──
+
+/**
+ * 封裝常用的 HTTP 安全標頭
+ */
+function withSecurityHeaders(response) {
+  const newResponse = new Response(response.body, response);
+  newResponse.headers.set('X-Frame-Options', 'DENY');
+  newResponse.headers.set('X-Content-Type-Options', 'nosniff');
+  newResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // CSP: 限制資源來源，允許內聯樣式與外部資源 (對齊 HihiMonitor 標準)
+  const csp = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; worker-src 'self' blob:;";
+  newResponse.headers.set('Content-Security-Policy', csp);
+
+  return newResponse;
+}
+
+/**
+ * 資源耗盡與限流防護 (利用 Cache API 實作零成本計數)
+ */
+async function checkRateLimit(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (!ip) return null;
+
+  const url = new URL(request.url);
+  const isApiRequest = url.pathname.startsWith('/api/');
+  const type = isApiRequest ? 'api' : 'dash';
+
+  const threshold = parseInt(isApiRequest ? (env.RATE_LIMIT_API || '15') : (env.RATE_LIMIT_DASH || '30'));
+  const cache = caches.default;
+  const baseUrl = `http://ratelimit.local/${type}/${ip}`;
+
+  const blockKey = new Request(`${baseUrl}/blocked`);
+  const isBlocked = await cache.match(blockKey);
+  if (isBlocked) return new Response('Too Many Requests (IP Blocked)', { status: 429 });
+
+  const countKey = new Request(`${baseUrl}/count`);
+  const cachedRes = await cache.match(countKey);
+  let currentCount = cachedRes ? (parseInt(await cachedRes.text()) || 0) : 0;
+
+  if (currentCount >= threshold) {
+    const blockRes = new Response('blocked', { headers: { 'Cache-Control': 'max-age=60, s-maxage=60' } });
+    await cache.put(blockKey, blockRes);
+    return new Response('Too Many Requests', { status: 429 });
+  }
+
+  const nextCountRes = new Response((currentCount + 1).toString(), { headers: { 'Cache-Control': 'max-age=60, s-maxage=60' } });
+  await cache.put(countKey, nextCountRes);
+  return null;
 }
