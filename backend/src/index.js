@@ -80,20 +80,26 @@ async function handleApiRequest(request, env, ctx) {
  * 核心：取得 Cloudflare 真實數據 (GraphQL)
  */
 async function fetchCloudflareUsage(apiToken, accountId) {
-  const today = new Date();
-  const dateStr = today.toISOString().split('T')[0];
+  // 修正時間對齊：官方儀表板是依據使用者的本地（例如 UTC+8）切換每日週期
+  // 且 R2 配額為「每月」重置，Workers 與 D1 則是「每日」重置。
+  const now = new Date();
+  const twTime = new Date(now.getTime() + 8 * 3600000);
+  
+  // 取得台灣時間當日 00:00:00 與當月 1 號 00:00:00，再轉為正確的 UTC 基準供 API 篩選
+  const startOfDay = new Date(Date.UTC(twTime.getUTCFullYear(), twTime.getUTCMonth(), twTime.getUTCDate()) - 8 * 3600000).toISOString();
+  const startOfMonth = new Date(Date.UTC(twTime.getUTCFullYear(), twTime.getUTCMonth(), 1) - 8 * 3600000).toISOString();
 
   const query = `
-    query($accountId: String!, $date: String!) {
+    query($accountId: String!, $startOfDay: String!, $startOfMonth: String!) {
       viewer {
         accounts(filter: {accountTag: $accountId}) {
-          workersInvocationsAdaptive(limit: 1000, filter: {date: $date}) {
+          workersInvocationsAdaptive(limit: 10000, filter: {datetime_geq: $startOfDay}) {
             sum { requests }
           }
-          d1QueriesAdaptiveGroups(limit: 1000, filter: {date: $date}) {
+          d1QueriesAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
             sum { rowsRead, rowsWritten }
           }
-          r2OperationsAdaptiveGroups(limit: 10000, filter: {date: $date}) {
+          r2OperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) {
             dimensions { actionType }
             sum { requests }
           }
@@ -112,7 +118,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
       headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables: { accountId, date: dateStr } })
+      body: JSON.stringify({ query, variables: { accountId, startOfDay, startOfMonth } })
     });
     const json = await res.json();
     const accountData = json?.data?.viewer?.accounts?.[0];
