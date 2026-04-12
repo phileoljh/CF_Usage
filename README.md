@@ -4,70 +4,51 @@
 
 ## 系統架構
 
-專案區分為兩大模組：
-1. **`backend/` (Cloudflare Worker)**
-   - 作為中介 API，負責使用您設定好的 API Token 對 Cloudflare 的 GraphQL/REST API 提取最新數據。
-   - 預設提供 15 分鐘的 TTL 快取。
-   - 回傳給前端已處理好、結構化的 JSON，含：已使用量、上限限制、百分比。
-2. **`frontend/` (Static Web App)**
-   - 注重質感與效能的使用者介面。
-   - 採用純 HTML、CSS (深色模式/Glassmorphism)、JavaScript 撰寫。
-   - 提供 Skeleton 載入與動態進度條。網頁打開當下，非同步向 Backend Worker 獲取資料。
+本專案採用 **All-in-one Worker (單一化 Cloudflare Worker)** 架構進行實作：
+- 將 HTML/CSS/JS 前端介面與 API 後端數據獲取邏輯整合在同一個 `index.js` 中。
+- **後端數據處理**：負責調用 Cloudflare GraphQL API 獲取最新用量數據，並以內建 Edge Cache 快取資源。
+- **前端網頁渲染**：訪問根目錄 `/` 即可取得完整的儀表板 HTML 網頁，網頁啟動後會自動從同網域的 `/api/data` 介面動態即時載入最新數據。
+- **優勢**：部署極度簡單（一個指令），同網域無 CORS 跨域困擾，且擁有最高安全性（Token 存放於伺服器端不外洩）。
 
 ---
 
 ## 部署標準作業程序 (SOP)
 
-本專案經過設計，**完全不需要經歷本地端測試或複雜的 CI/CD 建置**，所有元件皆可直接部署於 Cloudflare 平台上。請依序完成以下步驟。
+您完全不需要安裝 Node.js 或任何本地終端機指令，整個過程都在 Cloudflare 網頁版完成。請依序完成以下步驟：
 
 ### Phase 1: 取得 Cloudflare API Token 🔑
 1. 登入 [Cloudflare 儀表板](https://dash.cloudflare.com)。
 2. 前往右上方個人頭像 > **My Profile** > **API Tokens**。
-3. 點選 **Create Token** > 最下方選擇 **Create Custom Token**。
-4. 給 Token 命名 (如: `CF-Usage-Dashboard-API`)，並務必賦予以下權限 (包含最新加入的 KV 與 R2)：
+3. 點選 **Create Token** > 選擇 **Create Custom Token**。
+4. 給 Token 命名 (如: `CF-Usage-Dashboard-API`)，並賦予以下權限：
    - `Account` > `Account Analytics` > `Read`
    - `Account` > `D1` > `Read` 
    - `Account` > `Workers Scripts` > `Read`
    - `Account` > `Workers KV Storage` > `Read`
-   - `Account` > `R2 Storage` (或選擇對應的 R2 讀取權限) > `Read`
+   - `Account` > `R2 Storage` > `Read`
 5. 設定 Account Resources 為指定的帳號。
-6. 點擊 **Continue to summary** > **Create Token**。
-7. **非常重要**：請將畫面上出現的字串 (Token) 妥善保存，離開該頁面就再也看不到了。同時也準備好您的 **Account ID** (可以在 Cloudflare 儀表板右下角找到)。
+6. 完成並點擊 **Create Token**。
+7. **非常重要**：保存好畫面上顯示的 Token 以及您的 **Account ID** (位於儀表板右下角)。
 
-### Phase 2: 在網頁版直接建立 Backend (Cloudflare Worker) ⚙️
-完全不需要安裝 Node.js 或任何本地終端機指令，整個過程都在 Cloudflare 網頁版完成：
-1. 在 Cloudflare 儀表板左側，點選 **Workers & Pages** > **Overview** > 點擊 **Create application** > 選擇 **Create Worker**。
-2. 給 Worker 命名 (如: `cf-usage-api`)，點選右上角的 **Deploy**，接著點擊 **Edit code**。
-3. 刪除畫面左側編輯器內的所有預設程式碼。
-4. 打開您電腦上的 `backend/src/index.js` 檔案，將所有內容全選複製，並貼上到網頁的編輯器中，點擊右上角 **Deploy** 儲存。
-5. 點擊畫面最左上角的返回按鈕，回到 Worker 的管理頁面。切換到 **Settings** 頁籤 > 左側點選 **Variables and Secrets**。
+### Phase 2: 在網頁版直接建立 All-in-One Cloudflare Worker ⚙️
+1. 進入 Cloudflare 儀表板左側選單 **Workers & Pages** > 點擊 **Create application** > 選擇 **Create Worker**。
+2. 給 Worker 命名 (如: `cf-usage-api`)，點選 **Deploy**。
+3. 點擊 **Edit code**，刪除畫面左側編輯器內的所有預設程式碼。
+4. 打開您電腦上的 `backend/src/index.js` 檔案，將所有內容全選複製，貼上到網頁編輯器中，並點擊右上角 **Deploy** 儲存。
+5. 點擊畫面左上角的返回按鈕，回到 Worker 的管理頁面。切換到 **Settings** 頁籤 > 點選 **Variables and Secrets**。
 6. 在 **Environment Variables** 區塊進行以下新增：
    - 點擊 Add variable：名稱填寫 `CLOUDFLARE_ACCOUNT_ID`，Value 填入您的 Account ID，點選 Save。
-   - 點擊 Add variable：名稱填寫 `CLOUDFLARE_API_TOKEN`，Value 填入 Phase 1 拿到的 API Token，然後 **務必點選 `Encrypt`** (加密按鈕，讓 Token 變成星星隱藏不外流)，點選 Save。
-7. 回到 Worker 的主畫面，**紀錄下這個 Worker 的專屬網址** (例：`https://cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)。
+   - 點擊 Add variable：名稱填寫 `CLOUDFLARE_API_TOKEN`，Value 填入 Phase 1 拿到的 API Token，然後 **務必點選 `Encrypt`** (加密按鈕，讓 Token 隱藏不外流)，點選 Save。
+7. 回到 Worker 主畫面，紀錄下您的 Worker 專屬網址 (例：`https://cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)，這就是您的儀表板網址了！
 
-### Phase 3: 直接發布 Frontend (Cloudflare Pages) 🌐
-無需透過 GitHub，直接在網頁端將前端推上線：
-1. 編輯 `frontend/script.js` 檔案，將第一行的 `API_URL` 改為 Phase 2 獲得的 Worker 網址。
-2. 進入 Cloudflare 儀表板，前往左側 **Workers & Pages** > 選擇 **Pages** 頁籤 > 點擊 **Upload assets**。
-3. 設定專案名稱 (如: `cf-usage-dashboard`) 並建立專案。
-4. **將您電腦上的 `frontend/` 資料夾，直接整包拖曳到網頁虛線框內上傳**。
-5. 點擊 **Deploy site**。發布後您會得到一個類似 `https://cf-usage-dashboard.pages.dev` 的專用預設網址。
-
-### Phase 4: 套用 Zero Trust 保護 (無需綁定自訂網域) 🛡️
-為了達到「只有您或您的團隊才能觀看這個儀表板」的效果，我們將直接對 `*.pages.dev` 網址套用 Zero Trust (CF Access)：
-1. 在 Cloudflare 儀表板，前往左側選單的 **Zero Trust** (若首次使用可能需要選擇免費方案開通)。
-2. 在 Zero Trust 介面左側選擇 **Access** > **Applications** > 點擊 **Add an application**。
-3. 選擇 **Self-hosted**。
-4. **Application name** 隨意填寫 (如：`CF Dashboard Access`)。
-5. 在 **Application domain** 中：
-   - 網域下拉選單中，您理論上可以直接選擇您的 `.pages.dev` 網域 (如果 Pages 已自動幫你連結到 Zone 的話)。
-   - **補充：如果您的 Pages 沒掛入 Zone**：Cloudflare 最近直接在 Pages 設定後台提供了 Access 整合。回到原本一般 Dashboard 的 **Workers & Pages** > 點選您的 Pages 專案 > 切換到 **Settings** 頁籤 > 側邊欄點選 **Access policy** > 點擊 **Enable Access policy**，即可為 `*.pages.dev` 預設網域直接開啟保護。
-6. 設定 **Policies**：
-   - Action: `Allow`
-   - Include: 選擇 `Emails`，並輸入您自己的信箱，或是設定 `Email Domains` 只允許特定後綴信箱登入。
-7. 儲存設定。現在當任何人訪問您的儀表板網址時，都會跳出由 Cloudflare 提供的 Email One-Time-Pin (OTP) 登入畫面，且只有被授權的使用者能進入系統，完美達成內部安全保護。
+### Phase 3: 套用 Zero Trust 保護 🛡️
+為了達到只有您或內部人員才能觀看的安全要求，請為該 Worker 網址套用 Zero Trust 驗證：
+1. 前往左側選單 **Zero Trust** 的儀表板。
+2. 選擇左側 **Access** > **Applications** > **Add an application** > **Self-hosted**。
+3. 設定名稱，並在 **Application domain** 中填入該 Worker 的網域名稱 (例如 `cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)。
+4. 在 **Policies** 分頁中：Action 選擇 `Allow`，Include 選擇 `Emails` 或 `Email Domains`，來限制只有您本人的 Email 或特定網域可登入。
+5. 儲存設定。現在存取您的儀表板就會有一層 OTP (One-Time-Pin) 保護。
 
 ---
 
-> 開發提醒：若需要監視其他新服務，請至 `backend/src/index.js` 修改抓取邏輯，並調整上方的 `QUOTAS` 變數來控制上限值。
+> 開發提醒：若需要監視其他新服務，請至 `backend/src/index.js` 修改抓取邏輯，並調整上方的 `QUOTAS` 變數來控制上限值。舊版的 `frontend` 資料夾目前已不需使用，可視需求保留或刪除。
