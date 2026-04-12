@@ -44,10 +44,13 @@
 ### Phase 3: 套用 Zero Trust 保護 🛡️
 為了達到只有您或內部人員才能觀看的安全要求，請為該 Worker 網址套用 Zero Trust 驗證：
 1. 前往左側選單 **Zero Trust** 的儀表板。
-2. 選擇左側 **Access** > **Applications** > **Add an application** > **Self-hosted**。
-3. 設定名稱，並在 **Application domain** 中填入該 Worker 的網域名稱 (例如 `cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)。
-4. 在 **Policies** 分頁中：Action 選擇 `Allow`，Include 選擇 `Emails` 或 `Email Domains`，來限制只有您本人的 Email 或特定網域可登入。
-5. 儲存設定。現在存取您的儀表板就會有一層 OTP (One-Time-Pin) 保護。
+2. 選擇左側 **Access controls** > **Applications** > **Add an application** > **Self-hosted**。
+3. 在 **Configure app** 階段：設定名稱，並在 **Application domain** 中填入該 Worker 的網域名稱 (例如 `cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)。
+4. 在 **Add policies** 階段：Action 選擇 `Allow`，Include 選擇 `Emails` 或 `Email Domains`，來限制只有您本人的 Email 或特定網域可登入。
+5. 點擊 **Add application** 完成儲存。現在存取您的儀表板就會有一層 OTP (One-Time-Pin) 登入保護。
+
+> [!TIP]
+> **免驗證進階設定**：如果您有安裝 Cloudflare WARP 且已加入您的 Zero Trust 組織，可以再新增一項 Policy，將 Action 設為 `Bypass` 並 Include `Gateway` (或 `Warp`)。這樣當您連著 WARP 瀏覽時，就能免除 Email 驗證，實現無感登入。
 
 ---
 
