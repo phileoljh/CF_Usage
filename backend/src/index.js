@@ -86,30 +86,30 @@ async function handleApiRequest(request, env, ctx) {
         
         const dashboardData = {
           // --- Workers & Pages ---
-          workers_requests: { id: "workers_requests", name: "Requests today", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req" },
+          workers_requests: { id: "workers_requests", name: "Requests today", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req", period: "日結算" },
           // 註解：因 Cloudflare API 尚未開放取得 Observability 數據，故暫不顯示於正式版面，待官方支援後補上
-          // workers_observability: { id: "workers_observability", name: "Observability events today", used: usage.workers_observability || 0, limit: QUOTAS.workers_observability, percentage: (((usage.workers_observability || 0) / QUOTAS.workers_observability) * 100).toFixed(2), unit: "Events" },
+          // workers_observability: { id: "workers_observability", name: "Observability events today", used: usage.workers_observability || 0, limit: QUOTAS.workers_observability, percentage: (((usage.workers_observability || 0) / QUOTAS.workers_observability) * 100).toFixed(2), unit: "Events", period: "日結算" },
           // 註解：缺乏單點公開 API 能精準統計 Build minutes，容易計算為 0，為避免失真暫時隱藏
-          // workers_build: { id: "workers_build", name: "Workers build minutes this month", used: usage.workers_build || 0, limit: QUOTAS.workers_build_minutes, percentage: (((usage.workers_build || 0) / QUOTAS.workers_build_minutes) * 100).toFixed(2), unit: "Min" },
+          // workers_build: { id: "workers_build", name: "Workers build minutes this month", used: usage.workers_build || 0, limit: QUOTAS.workers_build_minutes, percentage: (((usage.workers_build || 0) / QUOTAS.workers_build_minutes) * 100).toFixed(2), unit: "Min", period: "月結算" },
           
           // --- R2 Object Storage ---
-          r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops" },
-          r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops" },
+          r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops", period: "月結算" },
+          r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops", period: "月結算" },
           // 註解：儲存空間總量 (Total storage) GraphQL 調用較繁瑣且常有落差，隱藏至官方推出易用統計端點
-          // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB" },
+          // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB", period: "總額" },
           
           // --- D1 Database ---
-          d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs" },
-          d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows" },
-          d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows" },
+          d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs", period: "總額" },
+          d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_read) * 100).toFixed(2), unit: "Rows", period: "日結算" },
+          d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_written) * 100).toFixed(2), unit: "Rows", period: "日結算" },
           // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
-          // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB" },
+          // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB", period: "總額" },
           
           // --- Workers KV ---
-          kv_read: { id: "kv_read", name: "Reads", used: usage.kv_read || 0, limit: QUOTAS.kv_read, percentage: (((usage.kv_read || 0) / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req" },
-          kv_write: { id: "kv_write", name: "Writes", used: usage.kv_write || 0, limit: QUOTAS.kv_write, percentage: (((usage.kv_write || 0) / QUOTAS.kv_write) * 100).toFixed(2), unit: "Req" },
-          kv_delete: { id: "kv_delete", name: "Deletes", used: usage.kv_delete || 0, limit: QUOTAS.kv_delete, percentage: (((usage.kv_delete || 0) / QUOTAS.kv_delete) * 100).toFixed(2), unit: "Req" },
-          kv_list: { id: "kv_list", name: "Lists", used: usage.kv_list || 0, limit: QUOTAS.kv_list, percentage: (((usage.kv_list || 0) / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req" }
+          kv_read: { id: "kv_read", name: "Reads", used: usage.kv_read || 0, limit: QUOTAS.kv_read, percentage: (((usage.kv_read || 0) / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req", period: "日結算" },
+          kv_write: { id: "kv_write", name: "Writes", used: usage.kv_write || 0, limit: QUOTAS.kv_write, percentage: (((usage.kv_write || 0) / QUOTAS.kv_write) * 100).toFixed(2), unit: "Req", period: "日結算" },
+          kv_delete: { id: "kv_delete", name: "Deletes", used: usage.kv_delete || 0, limit: QUOTAS.kv_delete, percentage: (((usage.kv_delete || 0) / QUOTAS.kv_delete) * 100).toFixed(2), unit: "Req", period: "日結算" },
+          kv_list: { id: "kv_list", name: "Lists", used: usage.kv_list || 0, limit: QUOTAS.kv_list, percentage: (((usage.kv_list || 0) / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req", period: "日結算" }
         };
 
         const resultData = JSON.stringify({
@@ -289,6 +289,7 @@ function getHtmlContent() {
         .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue)); transition: width 1.5s ease; }
         .progress-bar.warning { background: linear-gradient(90deg, #fcd34d, var(--accent-orange)); }
         .progress-bar.danger { background: linear-gradient(90deg, #fca5a5, var(--accent-red)); }
+        .period-tag { display: inline-block; font-size: 0.65rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(148, 163, 184, 0.15); color: var(--text-secondary); margin-left: 0.5rem; border: 1px solid rgba(148, 163, 184, 0.2); vertical-align: middle; transform: translateY(-1px); }
         .stats-row { display: flex; justify-content: space-between; }
         .stat-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.25rem; }
         .category-container { margin-bottom: 2.5rem; }
@@ -344,7 +345,7 @@ function getHtmlContent() {
                     sectionContent += \`
                         <div class="glass-card">
                             <div class="card-header">
-                                <span style="font-weight:600">\${item.name}</span>
+                                <span style="font-weight:600">\${item.name}<span class="period-tag">\${item.period}</span></span>
                                 <span class="percentage-badge" style="\${perc >= 80 ? 'color:white; border-color:transparent; background:red' : ''}">\${perc}%</span>
                             </div>
                             <div class="progress-track"><div class="progress-bar \${statusClass}" style="width:\${Math.min(perc, 100)}%"></div></div>
