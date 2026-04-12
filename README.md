@@ -34,23 +34,17 @@
 6. 點擊 **Continue to summary** > **Create Token**。
 7. **非常重要**：請將畫面上出現的字串 (Token) 妥善保存，離開該頁面就再也看不到了。同時也準備好您的 **Account ID** (可以在 Cloudflare 儀表板右下角找到)。
 
-### Phase 2: 直接發布 Backend (Cloudflare Worker) ⚙️
-不需在本地建置測試環境，直接使用終端機一鍵發布至 Cloudflare：
-1. 開啟終端機並切換至 `backend` 資料夾：
-   ```bash
-   cd backend
-   npm install
-   ```
-2. 將您的 Account ID 填寫至 `backend/wrangler.toml` 內的 `[vars]` 區塊。
-3. 把 Phase 1 拿到的 Token 安全地上傳給 Cloudflare (不會寫入任何可視檔案)：
-   ```bash
-   npx wrangler secret put CLOUDFLARE_API_TOKEN
-   ```
-4. 直接推送 Worker 上雲端：
-   ```bash
-   npx wrangler deploy
-   ```
-5. **(重要)** 紀錄發布成功後顯示的網址 (例：`https://cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)。
+### Phase 2: 在網頁版直接建立 Backend (Cloudflare Worker) ⚙️
+完全不需要安裝 Node.js 或任何本地終端機指令，整個過程都在 Cloudflare 網頁版完成：
+1. 在 Cloudflare 儀表板左側，點選 **Workers & Pages** > **Overview** > 點擊 **Create application** > 選擇 **Create Worker**。
+2. 給 Worker 命名 (如: `cf-usage-api`)，點選右上角的 **Deploy**，接著點擊 **Edit code**。
+3. 刪除畫面左側編輯器內的所有預設程式碼。
+4. 打開您電腦上的 `backend/src/index.js` 檔案，將所有內容全選複製，並貼上到網頁的編輯器中，點擊右上角 **Deploy** 儲存。
+5. 點擊畫面最左上角的返回按鈕，回到 Worker 的管理頁面。切換到 **Settings** 頁籤 > 左側點選 **Variables and Secrets**。
+6. 在 **Environment Variables** 區塊進行以下新增：
+   - 點擊 Add variable：名稱填寫 `CLOUDFLARE_ACCOUNT_ID`，Value 填入您的 Account ID，點選 Save。
+   - 點擊 Add variable：名稱填寫 `CLOUDFLARE_API_TOKEN`，Value 填入 Phase 1 拿到的 API Token，然後 **務必點選 `Encrypt`** (加密按鈕，讓 Token 變成星星隱藏不外流)，點選 Save。
+7. 回到 Worker 的主畫面，**紀錄下這個 Worker 的專屬網址** (例：`https://cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)。
 
 ### Phase 3: 直接發布 Frontend (Cloudflare Pages) 🌐
 無需透過 GitHub，直接在網頁端將前端推上線：
