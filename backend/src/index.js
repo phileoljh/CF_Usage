@@ -1,10 +1,14 @@
 // 定義免費額度上限 (Quotas)
 const QUOTAS = {
-  workers_requests: 100000,
-  d1_rows_read: 5000000,
-  d1_rows_written: 100000,
-  r2_class_b_ops: 10000000,
-  r2_class_a_ops: 1000000
+  workers_requests: 100000,      // Daily
+  d1_rows_read: 5000000,         // Daily
+  d1_rows_written: 100000,       // Daily
+  r2_class_a_ops: 1000000,       // Monthly
+  r2_class_b_ops: 10000000,      // Monthly
+  kv_read: 100000,               // Daily
+  kv_write: 1000,                // Daily
+  kv_delete: 1000,               // Daily
+  kv_list: 1000                  // Daily
 };
 
 const corsHeaders = {
@@ -61,7 +65,7 @@ export default {
         const dashboardData = {
           workers_requests: {
             id: "workers_requests",
-            name: "Workers (請求數)",
+            name: "Workers (請求)",
             used: usage.workers_requests,
             limit: QUOTAS.workers_requests,
             percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2),
@@ -69,7 +73,7 @@ export default {
           },
           d1_read: {
             id: "d1_read",
-            name: "D1 (讀取行數)",
+            name: "D1 (讀取)",
             used: usage.d1_rows_read,
             limit: QUOTAS.d1_rows_read,
             percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2),
@@ -77,19 +81,59 @@ export default {
           },
           d1_written: {
             id: "d1_written",
-            name: "D1 (寫入行數)",
+            name: "D1 (寫入)",
             used: usage.d1_rows_written,
             limit: QUOTAS.d1_rows_written,
             percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2),
             unit: "Rows"
           },
+          r2_class_a: {
+            id: "r2_class_a",
+            name: "R2 (Class A)",
+            used: usage.r2_class_a_ops,
+            limit: QUOTAS.r2_class_a_ops,
+            percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2),
+            unit: "Ops"
+          },
           r2_class_b: {
             id: "r2_class_b",
-            name: "R2 (Class B操作)",
+            name: "R2 (Class B)",
             used: usage.r2_class_b_ops,
             limit: QUOTAS.r2_class_b_ops,
             percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2),
             unit: "Ops"
+          },
+          kv_read: {
+            id: "kv_read",
+            name: "KV (讀取)",
+            used: usage.kv_read,
+            limit: QUOTAS.kv_read,
+            percentage: ((usage.kv_read / QUOTAS.kv_read) * 100).toFixed(2),
+            unit: "Req"
+          },
+          kv_write: {
+            id: "kv_write",
+            name: "KV (寫入)",
+            used: usage.kv_write,
+            limit: QUOTAS.kv_write,
+            percentage: ((usage.kv_write / QUOTAS.kv_write) * 100).toFixed(2),
+            unit: "Req"
+          },
+          kv_delete: {
+            id: "kv_delete",
+            name: "KV (刪除)",
+            used: usage.kv_delete,
+            limit: QUOTAS.kv_delete,
+            percentage: ((usage.kv_delete / QUOTAS.kv_delete) * 100).toFixed(2),
+            unit: "Req"
+          },
+          kv_list: {
+            id: "kv_list",
+            name: "KV (列表)",
+            used: usage.kv_list,
+            limit: QUOTAS.kv_list,
+            percentage: ((usage.kv_list / QUOTAS.kv_list) * 100).toFixed(2),
+            unit: "Req"
           }
         };
 
@@ -167,8 +211,13 @@ async function fetchCloudflareUsage(apiToken, accountId) {
   // R2 / D1 在官方文件中可能有另外的端點，此處提供介面佔位符作為擴充點
   return {
     workers_requests: workersRequests,
-    d1_rows_read: Math.floor(Math.random() * 4500000),    // TODO: 介接真實 D1 API
-    d1_rows_written: Math.floor(Math.random() * 50000),   // TODO: 介接真實 D1 API
-    r2_class_b_ops: Math.floor(Math.random() * 8000000),  // TODO: 介接真實 R2 API
+    d1_rows_read: Math.floor(Math.random() * 4500000),      // TODO: 介接真實 D1 API
+    d1_rows_written: Math.floor(Math.random() * 50000),     // TODO: 介接真實 D1 API
+    r2_class_a_ops: Math.floor(Math.random() * 800000),     // TODO: 介接真實 R2 API
+    r2_class_b_ops: Math.floor(Math.random() * 8000000),    // TODO: 介接真實 R2 API
+    kv_read: Math.floor(Math.random() * 90000),             // TODO: 介接真實 KV API
+    kv_write: Math.floor(Math.random() * 800),              // TODO: 介接真實 KV API
+    kv_delete: Math.floor(Math.random() * 500),             // TODO: 介接真實 KV API
+    kv_list: Math.floor(Math.random() * 500)                // TODO: 介接真實 KV API
   };
 }
