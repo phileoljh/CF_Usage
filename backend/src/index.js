@@ -40,6 +40,27 @@ export default {
     }
     // ─────────────────────────────────────
 
+    // ── [新增] 身份驗證檢查 (Zero Trust 或 Turnstile Cookie) ──
+    const authorized = await isAuthorized(request, env);
+    
+    // 如果是驗證請求，則不攔截
+    if (url.pathname === "/api/verify" && request.method === "POST") {
+      return withSecurityHeaders(await handleVerify(request, env));
+    }
+
+    // 若未授權且非驗證請求，則顯示 Turnstile 挑戰頁面
+    if (!authorized) {
+      // 如果是 API 請求但未授權，返回 401
+      if (url.pathname.startsWith("/api/")) {
+        return withSecurityHeaders(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } }));
+      }
+      // 返回人機驗證頁面
+      return withSecurityHeaders(new Response(getChallengeHtml(env.TURNSTILE_SITE_KEY), {
+        headers: { "Content-Type": "text/html;charset=UTF-8" }
+      }));
+    }
+    // ────────────────────────────────────────────────────────────
+
     // 路由 1: 獲取 API 資料
     if (url.pathname === "/api/data") {
       return withSecurityHeaders(await handleApiRequest(request, env, ctx));
@@ -367,6 +388,124 @@ function getHtmlContent() {
   `;
 }
 
+// ── 人機驗證與授權輔助函式 ──
+
+/**
+ * 檢查使用者是否具備存取權限 (Zero Trust 或有效的驗證 Cookie)
+ */
+async function isAuthorized(request, env) {
+  // 1. 檢查 Cloudflare Access (Zero Trust) JWT
+  // 這是使用者要求的功能：偵測到 Zero Trust 登入資訊時自動跳過
+  if (request.headers.get('Cf-Access-Jwt-Assertion')) {
+    return true;
+  }
+
+  // 2. 檢查本機驗證 Cookie
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
+  
+  // 檢查是否存在驗證標記
+  if (cookies.cf_usage_auth === 'authorized') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * 驗證 Turnstile Token 並設定 Cookie (有效期 24H)
+ */
+async function handleVerify(request, env) {
+  try {
+    const { token } = await request.json();
+    if (!token) throw new Error("缺少 Token");
+
+    const formData = new FormData();
+    formData.append('secret', env.TURNSTILE_SECRET_KEY);
+    formData.append('response', token);
+    formData.append('remoteip', request.headers.get('CF-Connecting-IP'));
+
+    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const outcome = await result.json();
+    if (outcome.success) {
+      return new Response(JSON.stringify({ success: true }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Set-Cookie': 'cf_usage_auth=authorized; Path=/; Max-Age=86400; HttpOnly; SameSite=Strict; Secure'
+        }
+      });
+    } else {
+      return new Response(JSON.stringify({ success: false, error: '驗證失敗' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  } catch (err) {
+    return new Response(JSON.stringify({ success: false, error: err.message }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+/**
+ * 返回 Turnstile 挑戰頁面 HTML
+ */
+function getChallengeHtml(siteKey) {
+  return `
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人機驗證 - Cloudflare Usage</title>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #0f121b; color: #f8fafc; font-family: 'Inter', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); padding: 2.5rem; border-radius: 1.5rem; backdrop-filter: blur(16px); text-align: center; max-width: 400px; width: 90%; }
+        h1 { font-size: 1.5rem; margin-bottom: 1rem; background: linear-gradient(to right, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        p { color: #94a3b8; font-size: 0.875rem; margin-bottom: 2rem; line-height: 1.5; }
+        #turnstile-container { display: flex; justify-content: center; min-height: 65px; }
+        .loading { color: #3b82f6; font-size: 0.875rem; display: none; margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>安全檢查</h1>
+        <p>為了保護系統安全，請完成下方的人機驗證以存取儀表板。</p>
+        <div id="turnstile-container" class="cf-turnstile" data-sitekey="${siteKey || ''}" data-callback="onVerify"></div>
+        <div id="loading" class="loading">正在驗證身分，請稍候...</div>
+    </div>
+    <script>
+        async function onVerify(token) {
+            document.getElementById('loading').style.display = 'block';
+            try {
+                const res = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    window.location.reload();
+                } else {
+                    alert('驗證失敗：' + (result.error || '原因未知'));
+                    window.location.reload();
+                }
+            } catch (e) {
+                alert('連線失敗，請稍後再試');
+            }
+        }
+    </script>
+</body>
+</html>`;
+}
+
 // ── 安全性輔助工具 ──
 
 /**
@@ -378,8 +517,15 @@ function withSecurityHeaders(response) {
   newResponse.headers.set('X-Content-Type-Options', 'nosniff');
   newResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
-  // CSP: 限制資源來源，允許內聯樣式與外部資源 (對齊 HihiMonitor 標準)
-  const csp = "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; worker-src 'self' blob:;";
+  // CSP: 限制資源來源，允許內聯樣式、Turnstile 腳本與 API 存取
+  const csp = "default-src 'self'; " +
+              "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com; " +
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+              "font-src https://fonts.gstatic.com; " +
+              "img-src 'self' data:; " +
+              "connect-src 'self' https://cloudflareinsights.com https://challenges.cloudflare.com; " +
+              "frame-src https://challenges.cloudflare.com; " +
+              "worker-src 'self' blob:;";
   newResponse.headers.set('Content-Security-Policy', csp);
 
   return newResponse;

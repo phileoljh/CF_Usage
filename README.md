@@ -49,6 +49,11 @@
 4. 在 **Add policies** 階段：Action 選擇 `Allow`，Include 選擇 `Emails` 或 `Email Domains`，來限制只有您本人的 Email 或特定網域可登入。
 5. 點擊 **Add application** 完成儲存。現在存取您的儀表板就會有一層 OTP (One-Time-Pin) 登入保護。
 
+### Phase 4: 配置 Turnstile 人機驗證 (選用額外保護) 🤖
+本專案支援 Turnstile 驗證，可作為 Zero Trust 之外的第二層防護（亦可偵測 Zero Trust 狀態自動繞過）：
+1. 詳細的申請流程請參考：[Turnstile 申請與配置 SOP](docs/turnstile_sop.md)。
+2. 配置完成後，您的儀表板將具備抗爬蟲與抗暴力破解的人機識別能力。
+
 > [!TIP]
 > **免驗證進階設定**：如果您有安裝 Cloudflare WARP 且已加入您的 Zero Trust 組織，可以再新增一項 Policy，將 Action 設為 `Bypass` 並 Include `Gateway` (或 `Warp`)。這樣當您連著 WARP 瀏覽時，就能免除 Email 驗證，實現無感登入。
 
