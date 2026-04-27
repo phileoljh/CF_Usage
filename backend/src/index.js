@@ -142,7 +142,7 @@ async function handleApiRequest(request, env, ctx) {
         });
 
         const cacheResponse = new Response(resultData, {
-          headers: { "Content-Type": "application/json", "Cache-Control": "s-maxage=900" }
+          headers: { "Content-Type": "application/json", "Cache-Control": "s-maxage=300" }
         });
         ctx.waitUntil(cache.put(cacheKey, cacheResponse.clone()));
 
@@ -188,7 +188,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
           workersInvocationsAdaptive(limit: 10000, filter: {datetime_geq: $startOfDay}) {
             sum { requests }
           }
-          d1QueriesAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
+          d1AnalyticsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
             sum { rowsRead, rowsWritten }
           }
           r2OperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) {
@@ -219,7 +219,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     workersRequests = accountData?.workersInvocationsAdaptive?.[0]?.sum?.requests || 0;
 
     // 解析 D1 (讀/寫 Rows 數值計算)
-    const d1Sum = accountData?.d1QueriesAdaptiveGroups?.[0]?.sum;
+    const d1Sum = accountData?.d1AnalyticsAdaptiveGroups?.[0]?.sum;
     if (d1Sum) {
       d1RowsRead = d1Sum.rowsRead || 0;
       d1RowsWritten = d1Sum.rowsWritten || 0;
