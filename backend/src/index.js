@@ -42,7 +42,7 @@ export default {
 
     // ── [新增] 身份驗證檢查 (Zero Trust 或 Turnstile Cookie) ──
     const authorized = await isAuthorized(request, env);
-    
+
     // 如果是驗證請求，則不攔截
     if (url.pathname === "/api/verify" && request.method === "POST") {
       return withSecurityHeaders(await handleVerify(request, env));
@@ -90,7 +90,7 @@ async function handleApiRequest(request, env, ctx) {
 
   if (!response) {
     const cacheKeyUrl = cacheKey.url;
-    
+
     // [STAMPEDE 防護] 檢查併發鎖
     if (renderLocks.has(cacheKeyUrl)) {
       console.log(`[STAMPEDE 防護] 搭便車！等候並共用 API 獲取結果`);
@@ -104,7 +104,7 @@ async function handleApiRequest(request, env, ctx) {
     const fetchPromise = (async () => {
       try {
         const usage = await fetchCloudflareUsage(env.CLOUDFLARE_API_TOKEN, env.CLOUDFLARE_ACCOUNT_ID);
-        
+
         const dashboardData = {
           // --- Workers & Pages ---
           workers_requests: { id: "workers_requests", name: "Requests today", used: usage.workers_requests, limit: QUOTAS.workers_requests, percentage: ((usage.workers_requests / QUOTAS.workers_requests) * 100).toFixed(2), unit: "Req", period: "日結算" },
@@ -112,20 +112,20 @@ async function handleApiRequest(request, env, ctx) {
           // workers_observability: { id: "workers_observability", name: "Observability events today", used: usage.workers_observability || 0, limit: QUOTAS.workers_observability, percentage: (((usage.workers_observability || 0) / QUOTAS.workers_observability) * 100).toFixed(2), unit: "Events", period: "日結算" },
           // 註解：缺乏單點公開 API 能精準統計 Build minutes，容易計算為 0，為避免失真暫時隱藏
           // workers_build: { id: "workers_build", name: "Workers build minutes this month", used: usage.workers_build || 0, limit: QUOTAS.workers_build_minutes, percentage: (((usage.workers_build || 0) / QUOTAS.workers_build_minutes) * 100).toFixed(2), unit: "Min", period: "月結算" },
-          
+
           // --- R2 Object Storage ---
           r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops", period: "月結算" },
           r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops", period: "月結算" },
           // 註解：儲存空間總量 (Total storage) GraphQL 調用較繁瑣且常有落差，隱藏至官方推出易用統計端點
           // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB", period: "總額" },
-          
+
           // --- D1 Database ---
           d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs", period: "總額" },
           d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows", period: "日結算" },
           d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows", period: "日結算" },
           // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
           // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB", period: "總額" },
-          
+
           // --- Workers KV ---
           kv_read: { id: "kv_read", name: "Reads", used: usage.kv_read || 0, limit: QUOTAS.kv_read, percentage: (((usage.kv_read || 0) / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req", period: "日結算" },
           kv_write: { id: "kv_write", name: "Writes", used: usage.kv_write || 0, limit: QUOTAS.kv_write, percentage: (((usage.kv_write || 0) / QUOTAS.kv_write) * 100).toFixed(2), unit: "Req", period: "日結算" },
@@ -142,7 +142,7 @@ async function handleApiRequest(request, env, ctx) {
           headers: { "Content-Type": "application/json", "Cache-Control": "s-maxage=900" }
         });
         ctx.waitUntil(cache.put(cacheKey, cacheResponse.clone()));
-        
+
         return resultData;
       } catch (error) {
         throw error;
@@ -172,11 +172,11 @@ async function fetchCloudflareUsage(apiToken, accountId) {
   // 修正時間對齊：官方儀表板是依據使用者的本地（例如 UTC+8）切換每日週期
   // 且 R2 配額為「每月」重置，Workers 與 D1 則是「每日」重置。
   const now = new Date();
-  const twTime = new Date(now.getTime() + 8 * 3600000);
-  
-  // 取得台灣時間當日 00:00:00 與當月 1 號 00:00:00，再轉為正確的 UTC 基準供 API 篩選
-  const startOfDay = new Date(Date.UTC(twTime.getUTCFullYear(), twTime.getUTCMonth(), twTime.getUTCDate()) - 8 * 3600000).toISOString();
-  const startOfMonth = new Date(Date.UTC(twTime.getUTCFullYear(), twTime.getUTCMonth(), 1) - 8 * 3600000).toISOString();
+
+  // 修正時間對齊：Cloudflare 官方額度（Free Tier）與儀表板是以 UTC 00:00 作為每日重置起點
+  // 將統計起點改為 UTC 午夜，即可精準對齊官方數據與剩餘額度
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 
   const query = `
     query($accountId: String!, $startOfDay: String!, $startOfMonth: String!) {
@@ -214,7 +214,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
 
     // 解析 Workers 請求
     workersRequests = accountData?.workersInvocationsAdaptive?.[0]?.sum?.requests || 0;
-    
+
     // 解析 D1 (讀/寫 Rows 數值計算)
     const d1Sum = accountData?.d1QueriesAdaptiveGroups?.[0]?.sum;
     if (d1Sum) {
@@ -246,7 +246,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     });
     const d1Json = await d1Res.json();
     if (d1Json.success) d1Databases = d1Json.result.length;
-  } catch(err) {
+  } catch (err) {
     console.error("fetchD1Databases failed:", err);
   }
 
@@ -255,8 +255,8 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     workers_requests: workersRequests,
     // workers_observability: 0, // 註解說明：Cloudflare API 未開放第三方呼叫 Observability 數據，在 CF 官方正式支援前不用。
     // workers_build: 0, // 註解說明：Build Minutes 官方無穩定 API，在 CF 官方正式支援前不用。
-    d1_databases: d1Databases, 
-    d1_rows_read: d1RowsRead, 
+    d1_databases: d1Databases,
+    d1_rows_read: d1RowsRead,
     d1_rows_written: d1RowsWritten,
     r2_class_a_ops: r2ClassA,
     r2_class_b_ops: r2ClassB,
@@ -403,7 +403,7 @@ async function isAuthorized(request, env) {
   // 2. 檢查本機驗證 Cookie
   const cookieHeader = request.headers.get('Cookie') || '';
   const cookies = Object.fromEntries(cookieHeader.split(';').map(c => c.trim().split('=')));
-  
+
   // 檢查是否存在驗證標記
   if (cookies.cf_usage_auth === 'authorized') {
     return true;
@@ -420,14 +420,15 @@ async function handleVerify(request, env) {
     const { token } = await request.json();
     if (!token) throw new Error("缺少 Token");
 
-    const formData = new FormData();
-    formData.append('secret', env.TURNSTILE_SECRET_KEY);
-    formData.append('response', token);
-    formData.append('remoteip', request.headers.get('CF-Connecting-IP'));
-
     const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        secret: env.TURNSTILE_SECRET_KEY,
+        response: token
+      }),
     });
 
     const outcome = await result.json();
@@ -438,9 +439,9 @@ async function handleVerify(request, env) {
           'Set-Cookie': 'cf_usage_auth=authorized; Path=/; Max-Age=86400; HttpOnly; SameSite=Strict; Secure'
         }
       });
-    } else {
-      // [優化] 回傳具體的錯誤代碼，方便排查 (例如 invalid-input-secret)
-      const errorDetail = outcome['error-codes'] ? outcome['error-codes'].join(', ') : '驗證失敗';
+      // [優化] 回傳具體的錯誤代碼與 Token 長度資訊，方便排查
+      const codes = outcome['error-codes'] ? outcome['error-codes'].join(', ') : '驗證失敗';
+      const errorDetail = `${codes} (Len: ${token.length})`;
       return new Response(JSON.stringify({ success: false, error: errorDetail }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
@@ -484,7 +485,10 @@ function getChallengeHtml(siteKey) {
         <div id="loading" class="loading">正在驗證身分，請稍候...</div>
     </div>
     <script>
+        let isVerifying = false;
         async function onVerify(token) {
+            if (isVerifying) return;
+            isVerifying = true;
             document.getElementById('loading').style.display = 'block';
             try {
                 const res = await fetch('/api/verify', {
@@ -497,10 +501,12 @@ function getChallengeHtml(siteKey) {
                     window.location.reload();
                 } else {
                     alert('驗證失敗：' + (result.error || '原因未知'));
+                    isVerifying = false;
                     window.location.reload();
                 }
             } catch (e) {
                 alert('連線失敗，請稍後再試');
+                isVerifying = false;
             }
         }
     </script>
@@ -521,13 +527,13 @@ function withSecurityHeaders(response) {
 
   // CSP: 限制資源來源，允許內聯樣式、Turnstile 腳本與 API 存取
   const csp = "default-src 'self'; " +
-              "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com; " +
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-              "font-src https://fonts.gstatic.com; " +
-              "img-src 'self' data:; " +
-              "connect-src 'self' https://cloudflareinsights.com https://challenges.cloudflare.com; " +
-              "frame-src https://challenges.cloudflare.com; " +
-              "worker-src 'self' blob:;";
+    "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src https://fonts.gstatic.com; " +
+    "img-src 'self' data:; " +
+    "connect-src 'self' https://cloudflareinsights.com https://challenges.cloudflare.com; " +
+    "frame-src https://challenges.cloudflare.com; " +
+    "worker-src 'self' blob:;";
   newResponse.headers.set('Content-Security-Policy', csp);
 
   return newResponse;
