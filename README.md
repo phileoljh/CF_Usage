@@ -37,8 +37,10 @@
 4. 打開您電腦上的 `backend/src/index.js` 檔案，將所有內容全選複製，貼上到網頁編輯器中，並點擊右上角 **Deploy** 儲存。
 5. 點擊畫面左上角的返回按鈕，回到 Worker 的管理頁面。切換到 **Settings** 頁籤 > 點選 **Variables and Secrets**。
 6. 在 **Environment Variables** 區塊進行以下新增：
-   - 點擊 Add variable：名稱填寫 `CLOUDFLARE_ACCOUNT_ID`，Value 填入您的 Account ID，點選 Save。
-   - 點擊 Add variable：名稱填寫 `CLOUDFLARE_API_TOKEN`，Value 填入 Phase 1 拿到的 API Token，然後 **務必點選 `Encrypt`** (加密按鈕，讓 Token 隱藏不外流)，點選 Save。
+    - 點擊 Add variable：名稱填寫 `CLOUDFLARE_ACCOUNT_ID`，Value 填入您的 Account ID，點選 Save。
+    - 點擊 Add variable：名稱填寫 `CLOUDFLARE_API_TOKEN`，Value 填入 Phase 1 拿到的 API Token，然後 **務必點選 `Encrypt`** (加密按鈕，讓 Token 隱藏不外流)，點選 Save。
+    - (選用) 點擊 Add variable：名稱填寫 `RATE_LIMIT_API`，Value 填入 API 每分鐘請求上限 (預設 15)。
+    - (選用) 點擊 Add variable：名稱填寫 `RATE_LIMIT_DASH`，Value 填入 儀表板每分鐘請求上限 (預設 30)。
 7. 回到 Worker 主畫面，紀錄下您的 Worker 專屬網址 (例：`https://cf-usage-api.<YOUR-SUBDOMAIN>.workers.dev`)，這就是您的儀表板網址了！
 
 ### Phase 3: 套用 Zero Trust 保護 🛡️

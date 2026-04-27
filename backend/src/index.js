@@ -1,18 +1,21 @@
 // --- 定義免費額度上限 (Quotas) ---
 const QUOTAS = {
   workers_requests: 100000,      // Daily
-  // workers_observability: 200000, // Daily (註解：目前 Cloudflare 未開放公開 API，待官方支援後再取消註解使用)
-  // workers_build_minutes: 3000,   // Monthly (註解：由於無法透過單一公開端點精準取得所有相關建置時間，待官方 API 完善支援後再使用)
   r2_class_a_ops: 1000000,       // Monthly
   r2_class_b_ops: 10000000,      // Monthly
   d1_databases: 10,              // Total
   d1_rows_read: 5000000,         // Daily
   d1_rows_written: 100000,       // Daily
-  // KV 
   kv_read: 100000,               // Daily
   kv_write: 1000,                // Daily
   kv_delete: 1000,               // Daily
   kv_list: 1000                  // Daily
+};
+
+// --- 定義限流預設值 (Rate Limits) ---
+const DEFAULT_RATE_LIMITS = {
+  api: 15,   // 每分鐘 API 請求上限
+  dash: 30   // 每分鐘儀表板頁面請求上限
 };
 
 // 全域渲染鎖 (防止 Cache Stampede 快取雪崩效應)
@@ -550,24 +553,32 @@ async function checkRateLimit(request, env) {
   const isApiRequest = url.pathname.startsWith('/api/');
   const type = isApiRequest ? 'api' : 'dash';
 
-  const threshold = parseInt(isApiRequest ? (env.RATE_LIMIT_API || '15') : (env.RATE_LIMIT_DASH || '30'));
+  // 讀取環境變數，若未設定或非數字則套用 DEFAULT_RATE_LIMITS 的預設值 (防呆)
+  const envKey = isApiRequest ? 'RATE_LIMIT_API' : 'RATE_LIMIT_DASH';
+  const defaultVal = isApiRequest ? DEFAULT_RATE_LIMITS.api : DEFAULT_RATE_LIMITS.dash;
+  const threshold = parseInt(env[envKey]) || defaultVal;
+
   const cache = caches.default;
   const baseUrl = `http://ratelimit.local/${type}/${ip}`;
 
   const blockKey = new Request(`${baseUrl}/blocked`);
   const isBlocked = await cache.match(blockKey);
-  if (isBlocked) return new Response('Too Many Requests (IP Blocked)', { status: 429 });
+  if (isBlocked) {
+    return new Response('Too Many Requests (IP Blocked temporarily)', { status: 429 });
+  }
 
   const countKey = new Request(`${baseUrl}/count`);
   const cachedRes = await cache.match(countKey);
   let currentCount = cachedRes ? (parseInt(await cachedRes.text()) || 0) : 0;
 
   if (currentCount >= threshold) {
+    // 達到上限，封鎖該 IP 60 秒 (s-maxage=60)
     const blockRes = new Response('blocked', { headers: { 'Cache-Control': 'max-age=60, s-maxage=60' } });
     await cache.put(blockKey, blockRes);
     return new Response('Too Many Requests', { status: 429 });
   }
 
+  // 增加計數，存有效期 60 秒
   const nextCountRes = new Response((currentCount + 1).toString(), { headers: { 'Cache-Control': 'max-age=60, s-maxage=60' } });
   await cache.put(countKey, nextCountRes);
   return null;
