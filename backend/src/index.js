@@ -45,7 +45,9 @@ export default {
 
     // ── [新增] 身份驗證檢查 (Zero Trust 或 Turnstile Cookie) ──
     const authorized = await isAuthorized(request, env);
-    const turnstileEnabled = !(env.ENABLE_TURNSTILE === 'false' || env.ENABLE_TURNSTILE === '0');
+    const isExplicitlyDisabled = env.ENABLE_TURNSTILE === 'false' || env.ENABLE_TURNSTILE === '0';
+    const isMissingKeys = !env.TURNSTILE_SITE_KEY || !env.TURNSTILE_SECRET_KEY;
+    const turnstileEnabled = !(isExplicitlyDisabled || isMissingKeys);
 
     // 如果是驗證請求且啟用了 Turnstile，才處理 /api/verify
     if (turnstileEnabled && url.pathname === "/api/verify" && request.method === "POST") {
@@ -407,8 +409,10 @@ function getHtmlContent() {
  * 檢查使用者是否具備存取權限 (Zero Trust 或有效的驗證 Cookie)
  */
 async function isAuthorized(request, env) {
-  // [新增] 檢查 Turnstile 開關，若設為 false 或 0 則直接放行 (不填寫視為預設啟用)
-  if (env.ENABLE_TURNSTILE === 'false' || env.ENABLE_TURNSTILE === '0') {
+  // [新增] 防呆機制：若明確關閉，或是沒設定金鑰，皆直接放行
+  const isExplicitlyDisabled = env.ENABLE_TURNSTILE === 'false' || env.ENABLE_TURNSTILE === '0';
+  const isMissingKeys = !env.TURNSTILE_SITE_KEY || !env.TURNSTILE_SECRET_KEY;
+  if (isExplicitlyDisabled || isMissingKeys) {
     return true;
   }
 

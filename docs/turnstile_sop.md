@@ -29,7 +29,8 @@
      - Value：填入剛取得的 Secret Key。
      - **務必點選 `Encrypt`** 進行加密。
    - (選用) 名稱：`ENABLE_TURNSTILE`
-     - Value：填入 `false` 或 `0` 可暫時關閉 Turnstile 驗證功能並預設放行；不新增此變數則預設為啟用。
+     - Value：填入 `false` 或 `0` 可手動關閉 Turnstile 驗證功能並預設放行。
+     - **防呆機制**：若您未設定 `TURNSTILE_SITE_KEY` 或 `TURNSTILE_SECRET_KEY`，系統也會自動判定為關閉狀態並直接放行。
 4. 點擊 **Save and deploy**。
 
 ## 完成驗證
