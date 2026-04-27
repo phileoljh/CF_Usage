@@ -439,7 +439,9 @@ async function handleVerify(request, env) {
         }
       });
     } else {
-      return new Response(JSON.stringify({ success: false, error: '驗證失敗' }), {
+      // [優化] 回傳具體的錯誤代碼，方便排查 (例如 invalid-input-secret)
+      const errorDetail = outcome['error-codes'] ? outcome['error-codes'].join(', ') : '驗證失敗';
+      return new Response(JSON.stringify({ success: false, error: errorDetail }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
       });
