@@ -45,17 +45,22 @@ export default {
 
     // ── [新增] 身份驗證檢查 (Zero Trust 或 Turnstile Cookie) ──
     const authorized = await isAuthorized(request, env);
+    const turnstileEnabled = !(env.ENABLE_TURNSTILE === 'false' || env.ENABLE_TURNSTILE === '0');
 
-    // 如果是驗證請求，則不攔截
-    if (url.pathname === "/api/verify" && request.method === "POST") {
+    // 如果是驗證請求且啟用了 Turnstile，才處理 /api/verify
+    if (turnstileEnabled && url.pathname === "/api/verify" && request.method === "POST") {
       return withSecurityHeaders(await handleVerify(request, env));
     }
 
-    // 若未授權且非驗證請求，則顯示 Turnstile 挑戰頁面
+    // 若未授權，則顯示 Turnstile 挑戰頁面或攔截
     if (!authorized) {
       // 如果是 API 請求但未授權，返回 401
       if (url.pathname.startsWith("/api/")) {
         return withSecurityHeaders(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } }));
+      }
+      // 其他路徑如果不是根目錄，統一導回首頁進入驗證
+      if (url.pathname !== "/") {
+        return withSecurityHeaders(Response.redirect(url.origin + "/", 301));
       }
       // 返回人機驗證頁面
       return withSecurityHeaders(new Response(getChallengeHtml(env.TURNSTILE_SITE_KEY), {
@@ -69,10 +74,15 @@ export default {
       return withSecurityHeaders(await handleApiRequest(request, env, ctx));
     }
 
-    // 路由 2: 返回整合後的 HTML 頁面
-    return withSecurityHeaders(new Response(getHtmlContent(), {
-      headers: { "Content-Type": "text/html;charset=UTF-8" }
-    }));
+    // 路由 2: 首頁 - 返回整合後的 HTML 頁面
+    if (url.pathname === "/") {
+      return withSecurityHeaders(new Response(getHtmlContent(), {
+        headers: { "Content-Type": "text/html;charset=UTF-8" }
+      }));
+    }
+
+    // 路由 3: [修正] 其他未定義的網址 (例如 /favicon.ico 或亂敲的路徑)，一律 301 導向首頁
+    return withSecurityHeaders(Response.redirect(url.origin + "/", 301));
   }
 };
 
