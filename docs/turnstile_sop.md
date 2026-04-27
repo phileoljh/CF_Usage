@@ -22,12 +22,14 @@
 ## 步驟 3：配置 Worker 環境變數
 1. 回到 **Workers & Pages** > 點選您的 Worker 專案。
 2. 切換至 **Settings** 頁籤 > 點選 **Variables and Secrets**。
-3. 在 **Environment Variables** 區塊，點擊 **Add variable** 新增以下兩項：
+3. 在 **Environment Variables** 區塊，點擊 **Add variable** 新增以下項目：
    - 名稱：`TURNSTILE_SITE_KEY`
      - Value：填入剛取得的 Site Key。
    - 名稱：`TURNSTILE_SECRET_KEY`
      - Value：填入剛取得的 Secret Key。
      - **務必點選 `Encrypt`** 進行加密。
+   - (選用) 名稱：`ENABLE_TURNSTILE`
+     - Value：填入 `false` 或 `0` 可暫時關閉 Turnstile 驗證功能並預設放行；不新增此變數則預設為啟用。
 4. 點擊 **Save and deploy**。
 
 ## 完成驗證

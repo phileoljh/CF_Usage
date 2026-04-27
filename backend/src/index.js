@@ -397,6 +397,11 @@ function getHtmlContent() {
  * 檢查使用者是否具備存取權限 (Zero Trust 或有效的驗證 Cookie)
  */
 async function isAuthorized(request, env) {
+  // [新增] 檢查 Turnstile 開關，若設為 false 或 0 則直接放行 (不填寫視為預設啟用)
+  if (env.ENABLE_TURNSTILE === 'false' || env.ENABLE_TURNSTILE === '0') {
+    return true;
+  }
+
   // 1. 檢查 Cloudflare Access (Zero Trust) JWT
   // 這是使用者要求的功能：偵測到 Zero Trust 登入資訊時自動跳過
   if (request.headers.get('Cf-Access-Jwt-Assertion')) {
