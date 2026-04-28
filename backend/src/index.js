@@ -1,6 +1,8 @@
 // --- 定義免費額度上限 (Quotas) ---
 const QUOTAS = {
   workers_requests: 100000,      // Daily
+  workers_ai_neurons: 10000,     // Daily
+  vectorize_requests: 2000000,   // Monthly
   r2_class_a_ops: 1000000,       // Monthly
   r2_class_b_ops: 10000000,      // Monthly
   d1_databases: 10,              // Total
@@ -155,7 +157,14 @@ async function handleApiRequest(request, env, ctx) {
           kv_read: { id: "kv_read", name: "Reads", used: usage.kv_read || 0, limit: QUOTAS.kv_read, percentage: (((usage.kv_read || 0) / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req", period: "日結算" },
           kv_write: { id: "kv_write", name: "Writes", used: usage.kv_write || 0, limit: QUOTAS.kv_write, percentage: (((usage.kv_write || 0) / QUOTAS.kv_write) * 100).toFixed(2), unit: "Req", period: "日結算" },
           kv_delete: { id: "kv_delete", name: "Deletes", used: usage.kv_delete || 0, limit: QUOTAS.kv_delete, percentage: (((usage.kv_delete || 0) / QUOTAS.kv_delete) * 100).toFixed(2), unit: "Req", period: "日結算" },
-          kv_list: { id: "kv_list", name: "Lists", used: usage.kv_list || 0, limit: QUOTAS.kv_list, percentage: (((usage.kv_list || 0) / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req", period: "日結算" }
+          kv_list: { id: "kv_list", name: "Lists", used: usage.kv_list || 0, limit: QUOTAS.kv_list, percentage: (((usage.kv_list || 0) / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req", period: "日結算" },
+
+          // --- 新指標封裝 (預留至前端調用) ---
+          workers_ai_neurons: { id: "workers_ai_neurons", name: "AI Neurons", used: usage.workers_ai_neurons || 0, limit: QUOTAS.workers_ai_neurons, percentage: (((usage.workers_ai_neurons || 0) / QUOTAS.workers_ai_neurons) * 100).toFixed(2), unit: "Neurons", period: "日結算" },
+          vectorize_requests: { id: "vectorize_requests", name: "Vectorize Requests", used: usage.vectorize_requests || 0, limit: QUOTAS.vectorize_requests, percentage: (((usage.vectorize_requests || 0) / QUOTAS.vectorize_requests) * 100).toFixed(2), unit: "Req", period: "月結算" },
+          r2_storage_bytes: { id: "r2_storage_bytes", name: "R2 Total Storage", used: (usage.r2_storage_bytes / (1024 * 1024 * 1024)).toFixed(2), limit: 10, percentage: (((usage.r2_storage_bytes / (1024 * 1024 * 1024)) / 10) * 100).toFixed(2), unit: "GB", period: "總額" },
+          turnstile_solves: { id: "turnstile_solves", name: "Turnstile Solved", used: usage.turnstile_solves || 0, limit: 10000, percentage: 0, unit: "Req", period: "日結算" },
+          image_resizing_requests: { id: "image_resizing_requests", name: "Image Resizing", used: usage.image_resizing_requests || 0, limit: 100000, percentage: (((usage.image_resizing_requests || 0) / 100000) * 100).toFixed(2), unit: "Req", period: "月結算" }
         };
 
         const resultData = JSON.stringify({
@@ -203,30 +212,43 @@ async function fetchCloudflareUsage(apiToken, accountId) {
   const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 
-  const query = `
-    query($accountId: String!, $startOfDay: String!, $startOfMonth: String!) {
-      viewer {
-        accounts(filter: {accountTag: $accountId}) {
-          workersInvocationsAdaptive(limit: 10000, filter: {datetime_geq: $startOfDay}) {
-            sum { requests }
-          }
-          d1AnalyticsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
-            sum { rowsRead, rowsWritten }
-          }
-          r2OperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) {
-            dimensions { actionType }
-            sum { requests }
-          }
-          kvOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
-            dimensions { actionType }
-            sum { requests }
+  const fetchGraphQL = async (queryText) => {
+    const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: queryText, variables: { accountId, startOfDay, startOfMonth } })
+    });
+    const json = await res.json();
+    if (json.errors) throw new Error(JSON.stringify(json.errors));
+    return json?.data?.viewer?.accounts?.[0];
+  };
+
+  const queries = {
+    base: `
+      query($accountId: String!, $startOfDay: String!, $startOfMonth: String!) {
+        viewer {
+          accounts(filter: {accountTag: $accountId}) {
+            workersInvocationsAdaptive(limit: 10000, filter: {datetime_geq: $startOfDay}) { sum { requests } }
+            d1AnalyticsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) { sum { rowsRead, rowsWritten } }
+            r2OperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { dimensions { actionType } sum { requests } }
+            kvOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) { dimensions { actionType } sum { requests } }
           }
         }
       }
-    }
-  `;
+    `,
+    ai: `query($accountId: String!, $startOfDay: String!) { viewer { accounts(filter: {accountTag: $accountId}) { workersAIInvocationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) { sum { neurons } } } } }`,
+    vectorize: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { vectorizeOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { sum { requests } } } } }`,
+    r2_storage: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { r2StorageAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { max { payloadSize } } } } }`,
+    turnstile: `query($accountId: String!, $startOfDay: String!) { viewer { accounts(filter: {accountTag: $accountId}) { turnstileAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) { sum { solved } } } } }`,
+    images: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { imageResizingAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { sum { requests } } } } }`
+  };
 
   let workersRequests = 0;
+  let workersAINeurons = 0;
+  let vectorizeRequests = 0;
+  let r2StorageBytes = 0;
+  let turnstileSolves = 0;
+  let imageResizingRequests = 0;
   let d1RowsRead = 0;
   let d1RowsWritten = 0;
   let r2ClassA = 0;
@@ -236,49 +258,57 @@ async function fetchCloudflareUsage(apiToken, accountId) {
   let kvDelete = 0;
   let kvList = 0;
 
+  // 併發請求所有 GraphQL 以防單一模組未開通導致全盤失敗
   try {
-    const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables: { accountId, startOfDay, startOfMonth } })
-    });
-    const json = await res.json();
-    const accountData = json?.data?.viewer?.accounts?.[0];
+    const results = await Promise.allSettled([
+      fetchGraphQL(queries.base),
+      fetchGraphQL(queries.ai),
+      fetchGraphQL(queries.vectorize),
+      fetchGraphQL(queries.r2_storage),
+      fetchGraphQL(queries.turnstile),
+      fetchGraphQL(queries.images)
+    ]);
 
-    // 解析 Workers 請求
-    workersRequests = accountData?.workersInvocationsAdaptive?.[0]?.sum?.requests || 0;
-
-    // 解析 D1 (讀/寫 Rows 數值計算)
-    const d1Sum = accountData?.d1AnalyticsAdaptiveGroups?.[0]?.sum;
-    if (d1Sum) {
-      d1RowsRead = d1Sum.rowsRead || 0;
-      d1RowsWritten = d1Sum.rowsWritten || 0;
-    }
-
-    // 解析 R2
-    const r2Ops = accountData?.r2OperationsAdaptiveGroups || [];
-    for (const op of r2Ops) {
-      const action = op.dimensions?.actionType;
-      const reqs = op.sum?.requests || 0;
-      if (["PutObject", "ListObjects", "PutBucket", "CopyObject", "CompleteMultipartUpload", "CreateMultipartUpload", "ListMultipartUploads", "UploadPart", "UploadPartCopy", "ListParts", "PutBucketEncryption", "PutBucketCors", "PutBucketLifecycleConfiguration", "ListBuckets"].includes(action)) {
-        r2ClassA += reqs;
-      } else if (["GetObject", "HeadObject", "HeadBucket", "GetBucketEncryption", "GetBucketLocation", "GetBucketCors", "GetBucketLifecycleConfiguration", "UsageSummary"].includes(action)) {
-        r2ClassB += reqs;
+    // 解析 Base
+    if (results[0].status === 'fulfilled' && results[0].value) {
+      const data = results[0].value;
+      workersRequests = data.workersInvocationsAdaptive?.[0]?.sum?.requests || 0;
+      const d1Sum = data.d1AnalyticsAdaptiveGroups?.[0]?.sum;
+      if (d1Sum) { d1RowsRead = d1Sum.rowsRead || 0; d1RowsWritten = d1Sum.rowsWritten || 0; }
+      for (const op of (data.r2OperationsAdaptiveGroups || [])) {
+        const action = op.dimensions?.actionType;
+        const reqs = op.sum?.requests || 0;
+        if (["PutObject", "ListObjects", "PutBucket", "CopyObject", "CompleteMultipartUpload", "CreateMultipartUpload", "ListMultipartUploads", "UploadPart", "UploadPartCopy", "ListParts", "PutBucketEncryption", "PutBucketCors", "PutBucketLifecycleConfiguration", "ListBuckets"].includes(action)) r2ClassA += reqs;
+        else if (["GetObject", "HeadObject", "HeadBucket", "GetBucketEncryption", "GetBucketLocation", "GetBucketCors", "GetBucketLifecycleConfiguration", "UsageSummary"].includes(action)) r2ClassB += reqs;
       }
-    }
+      for (const op of (data.kvOperationsAdaptiveGroups || [])) {
+        const action = op.dimensions?.actionType?.toLowerCase();
+        const reqs = op.sum?.requests || 0;
+        if (action === "read" || action === "get") kvRead += reqs;
+        else if (action === "write" || action === "put") kvWrite += reqs;
+        else if (action === "delete") kvDelete += reqs;
+        else if (action === "list") kvList += reqs;
+      }
+    } else if (results[0].status === 'rejected') console.error(JSON.stringify({ error: results[0].reason?.message, context: "fetchCloudflareUsage:base" }));
 
-    // 解析 KV
-    const kvOps = accountData?.kvOperationsAdaptiveGroups || [];
-    for (const op of kvOps) {
-      const action = op.dimensions?.actionType?.toLowerCase();
-      const reqs = op.sum?.requests || 0;
-      if (action === "read" || action === "get") kvRead += reqs;
-      else if (action === "write" || action === "put") kvWrite += reqs;
-      else if (action === "delete") kvDelete += reqs;
-      else if (action === "list") kvList += reqs;
-    }
+    // 解析新指標 (分別擷取，容錯處理)
+    if (results[1].status === 'fulfilled' && results[1].value) workersAINeurons = results[1].value.workersAIInvocationsAdaptiveGroups?.[0]?.sum?.neurons || 0;
+    else if (results[1].status === 'rejected') console.error(JSON.stringify({ error: results[1].reason?.message, context: "fetchCloudflareUsage:ai" }));
+
+    if (results[2].status === 'fulfilled' && results[2].value) vectorizeRequests = results[2].value.vectorizeOperationsAdaptiveGroups?.[0]?.sum?.requests || 0;
+    else if (results[2].status === 'rejected') console.error(JSON.stringify({ error: results[2].reason?.message, context: "fetchCloudflareUsage:vectorize" }));
+
+    if (results[3].status === 'fulfilled' && results[3].value) r2StorageBytes = results[3].value.r2StorageAdaptiveGroups?.[0]?.max?.payloadSize || 0;
+    else if (results[3].status === 'rejected') console.error(JSON.stringify({ error: results[3].reason?.message, context: "fetchCloudflareUsage:r2_storage" }));
+
+    if (results[4].status === 'fulfilled' && results[4].value) turnstileSolves = results[4].value.turnstileAdaptiveGroups?.[0]?.sum?.solved || 0;
+    else if (results[4].status === 'rejected') console.error(JSON.stringify({ error: results[4].reason?.message, context: "fetchCloudflareUsage:turnstile" }));
+
+    if (results[5].status === 'fulfilled' && results[5].value) imageResizingRequests = results[5].value.imageResizingAdaptiveGroups?.[0]?.sum?.requests || 0;
+    else if (results[5].status === 'rejected') console.error(JSON.stringify({ error: results[5].reason?.message, context: "fetchCloudflareUsage:images" }));
+
   } catch (err) {
-    console.error("fetchCloudflareUsage failed:", err);
+    console.error(JSON.stringify({ error: err.message, context: "fetchCloudflareUsage", stack: err.stack }));
   }
 
   // 取得 D1 Database 總數量 (REST API)
@@ -291,7 +321,7 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     const d1Json = await d1Res.json();
     if (d1Json.success) d1Databases = d1Json.result.length;
   } catch (err) {
-    console.error("fetchD1Databases failed:", err);
+    console.error(JSON.stringify({ error: err.message, context: "fetchD1Databases", stack: err.stack }));
   }
 
   // 回傳前端完整的結構化數據
@@ -307,7 +337,12 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     kv_read: kvRead,
     kv_write: kvWrite,
     kv_delete: kvDelete,
-    kv_list: kvList
+    kv_list: kvList,
+    workers_ai_neurons: workersAINeurons,
+    vectorize_requests: vectorizeRequests,
+    r2_storage_bytes: r2StorageBytes,
+    turnstile_solves: turnstileSolves,
+    image_resizing_requests: imageResizingRequests
   };
 }
 
@@ -354,6 +389,7 @@ function getHtmlContent() {
         .progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue)); transition: width 1.5s ease; }
         .progress-bar.warning { background: linear-gradient(90deg, #fcd34d, var(--accent-orange)); }
         .progress-bar.danger { background: linear-gradient(90deg, #fca5a5, var(--accent-red)); }
+        .progress-bar.ai { background: linear-gradient(90deg, #c084fc, #db2777); }
         .period-tag { display: inline-block; font-size: 0.65rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(148, 163, 184, 0.15); color: var(--text-secondary); margin-left: 0.5rem; border: 1px solid rgba(148, 163, 184, 0.2); vertical-align: middle; transform: translateY(-1px); }
         .stats-row { display: flex; justify-content: space-between; }
         .stat-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.25rem; }
@@ -389,10 +425,12 @@ function getHtmlContent() {
             
             // 梳理指標的分類：對齊官方儀表板介面的大項目與分類
             const categories = {
-                "Workers & Pages": [data.workers_requests], // workers_observability, workers_build 因無官方API暫時隱藏
-                "R2 Object Storage": [data.r2_class_a, data.r2_class_b], // r2_storage 置換無有效公開 API 暫隱藏
-                "D1 Database": [data.d1_databases, data.d1_read, data.d1_written], // d1_storage 置換無有效公開 API 暫隱藏
-                "Workers KV": [data.kv_read, data.kv_write, data.kv_delete, data.kv_list]
+                "Workers & Pages": [data.workers_requests],
+                "R2 Object Storage": [data.r2_storage_bytes, data.r2_class_a, data.r2_class_b],
+                "D1 Database": [data.d1_databases, data.d1_read, data.d1_written],
+                "Workers KV": [data.kv_read, data.kv_write, data.kv_delete, data.kv_list],
+                "Security & Optimization": [data.turnstile_solves, data.image_resizing_requests],
+                "AI & Vector": [data.workers_ai_neurons, data.vectorize_requests]
             };
 
             for (const [category, items] of Object.entries(categories)) {
@@ -404,7 +442,9 @@ function getHtmlContent() {
                     if (!item) return;
                     const perc = parseFloat(item.percentage);
                     let statusClass = "";
-                    if (perc >= 95) statusClass = "danger";
+
+                    if (category === "AI & Vector") statusClass = "ai";
+                    else if (perc >= 95) statusClass = "danger";
                     else if (perc >= 80) statusClass = "warning";
                     
                     sectionContent += \`
