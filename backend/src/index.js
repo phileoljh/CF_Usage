@@ -490,14 +490,15 @@ async function handleVerify(request, env) {
           'Set-Cookie': 'cf_usage_auth=authorized; Path=/; Max-Age=86400; HttpOnly; SameSite=Strict; Secure'
         }
       });
-      // [優化] 回傳具體的錯誤代碼與 Token 長度資訊，方便排查
-      const codes = outcome['error-codes'] ? outcome['error-codes'].join(', ') : '驗證失敗';
-      const errorDetail = `${codes} (Len: ${token.length})`;
-      return new Response(JSON.stringify({ success: false, error: errorDetail }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' }
-      });
     }
+
+    // [優化] 回傳具體的錯誤代碼與 Token 長度資訊，方便排查
+    const codes = outcome['error-codes'] ? outcome['error-codes'].join(', ') : '驗證失敗';
+    const errorDetail = `${codes} (Len: ${token.length})`;
+    return new Response(JSON.stringify({ success: false, error: errorDetail }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
   } catch (err) {
     return new Response(JSON.stringify({ success: false, error: err.message }), {
       status: 400,
