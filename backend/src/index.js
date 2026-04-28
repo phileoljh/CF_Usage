@@ -41,6 +41,16 @@ export default {
     if (isUnusualPort || isHiddenFile) {
       return withSecurityHeaders(Response.redirect("https://cfusage.hihimonitor.win/", 301));
     }
+
+    // 條件三：攔截不支援的 HTTP Method (如 HEAD) 防護爬蟲
+    if (request.method !== "GET" && request.method !== "POST") {
+      return new Response(null, { status: 405, statusText: "Method Not Allowed" });
+    }
+
+    // 條件四：忽略常見無用靜態資源的掃描
+    if (url.pathname === "/favicon.ico" || url.pathname === "/robots.txt") {
+      return new Response(null, { status: 204 });
+    }
     // ─────────────────────────────────────
 
     // ── [新增] 身份驗證檢查 (Zero Trust 或 Turnstile Cookie) ──
@@ -207,8 +217,9 @@ async function fetchCloudflareUsage(apiToken, accountId) {
             dimensions { actionType }
             sum { requests }
           }
-          kvNamespaceOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
-            sum { readOps, writeOps, deleteOps, listOps }
+          kvOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
+            dimensions { actionType }
+            sum { requests }
           }
         }
       }
@@ -257,12 +268,14 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     }
 
     // 解析 KV
-    const kvSum = accountData?.kvNamespaceOperationsAdaptiveGroups?.[0]?.sum;
-    if (kvSum) {
-      kvRead = kvSum.readOps || 0;
-      kvWrite = kvSum.writeOps || 0;
-      kvDelete = kvSum.deleteOps || 0;
-      kvList = kvSum.listOps || 0;
+    const kvOps = accountData?.kvOperationsAdaptiveGroups || [];
+    for (const op of kvOps) {
+      const action = op.dimensions?.actionType?.toLowerCase();
+      const reqs = op.sum?.requests || 0;
+      if (action === "read" || action === "get") kvRead += reqs;
+      else if (action === "write" || action === "put") kvWrite += reqs;
+      else if (action === "delete") kvDelete += reqs;
+      else if (action === "list") kvList += reqs;
     }
   } catch (err) {
     console.error("fetchCloudflareUsage failed:", err);
