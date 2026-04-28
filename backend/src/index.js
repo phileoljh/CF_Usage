@@ -207,6 +207,9 @@ async function fetchCloudflareUsage(apiToken, accountId) {
             dimensions { actionType }
             sum { requests }
           }
+          kvNamespaceOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) {
+            sum { readOps, writeOps, deleteOps, listOps }
+          }
         }
       }
     }
@@ -217,6 +220,10 @@ async function fetchCloudflareUsage(apiToken, accountId) {
   let d1RowsWritten = 0;
   let r2ClassA = 0;
   let r2ClassB = 0;
+  let kvRead = 0;
+  let kvWrite = 0;
+  let kvDelete = 0;
+  let kvList = 0;
 
   try {
     const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
@@ -248,6 +255,15 @@ async function fetchCloudflareUsage(apiToken, accountId) {
         r2ClassB += reqs;
       }
     }
+
+    // 解析 KV
+    const kvSum = accountData?.kvNamespaceOperationsAdaptiveGroups?.[0]?.sum;
+    if (kvSum) {
+      kvRead = kvSum.readOps || 0;
+      kvWrite = kvSum.writeOps || 0;
+      kvDelete = kvSum.deleteOps || 0;
+      kvList = kvSum.listOps || 0;
+    }
   } catch (err) {
     console.error("fetchCloudflareUsage failed:", err);
   }
@@ -275,10 +291,10 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     d1_rows_written: d1RowsWritten,
     r2_class_a_ops: r2ClassA,
     r2_class_b_ops: r2ClassB,
-    kv_read: 0,
-    kv_write: 0,
-    kv_delete: 0,
-    kv_list: 0
+    kv_read: kvRead,
+    kv_write: kvWrite,
+    kv_delete: kvDelete,
+    kv_list: kvList
   };
 }
 
