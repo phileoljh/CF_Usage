@@ -16,8 +16,8 @@ const QUOTAS = {
 
 // --- 定義限流預設值 (Rate Limits) ---
 const DEFAULT_RATE_LIMITS = {
-  api: 15,   // 每分鐘 API 請求上限
-  dash: 30   // 每分鐘儀表板頁面請求上限
+  api: 30,   // 每分鐘 API 請求上限
+  dash: 40   // 每分鐘儀表板頁面請求上限
 };
 
 // 全域渲染鎖 (防止 Cache Stampede 快取雪崩效應)
@@ -143,15 +143,11 @@ async function handleApiRequest(request, env, ctx) {
           // --- R2 Object Storage ---
           r2_class_a: { id: "r2_class_a", name: "Class A Operations", used: usage.r2_class_a_ops, limit: QUOTAS.r2_class_a_ops, percentage: ((usage.r2_class_a_ops / QUOTAS.r2_class_a_ops) * 100).toFixed(2), unit: "Ops", period: "月結算" },
           r2_class_b: { id: "r2_class_b", name: "Class B Operations", used: usage.r2_class_b_ops, limit: QUOTAS.r2_class_b_ops, percentage: ((usage.r2_class_b_ops / QUOTAS.r2_class_b_ops) * 100).toFixed(2), unit: "Ops", period: "月結算" },
-          // 註解：儲存空間總量 (Total storage) GraphQL 調用較繁瑣且常有落差，隱藏至官方推出易用統計端點
-          // r2_storage: { id: "r2_storage", name: "Total storage", used: 0, limit: 10, percentage: 0, unit: "GB", period: "總額" },
 
           // --- D1 Database ---
           d1_databases: { id: "d1_databases", name: "Total Databases", used: usage.d1_databases || 0, limit: QUOTAS.d1_databases, percentage: (((usage.d1_databases || 0) / QUOTAS.d1_databases) * 100).toFixed(2), unit: "DBs", period: "總額" },
           d1_read: { id: "d1_read", name: "Rows read", used: usage.d1_rows_read, limit: QUOTAS.d1_rows_read, percentage: ((usage.d1_rows_read / QUOTAS.d1_rows_read) * 100).toFixed(2), unit: "Rows", period: "日結算" },
           d1_written: { id: "d1_written", name: "Rows written", used: usage.d1_rows_written, limit: QUOTAS.d1_rows_written, percentage: ((usage.d1_rows_written / QUOTAS.d1_rows_written) * 100).toFixed(2), unit: "Rows", period: "日結算" },
-          // 註解：D1 儲存空間總量 API 未有簡單直觀的容量輸出格式，隱藏至後續官方支援
-          // d1_storage: { id: "d1_storage", name: "Total storage", used: 0, limit: 5, percentage: 0, unit: "GB", period: "總額" },
 
           // --- Workers KV ---
           kv_read: { id: "kv_read", name: "Reads", used: usage.kv_read || 0, limit: QUOTAS.kv_read, percentage: (((usage.kv_read || 0) / QUOTAS.kv_read) * 100).toFixed(2), unit: "Req", period: "日結算" },
@@ -160,11 +156,51 @@ async function handleApiRequest(request, env, ctx) {
           kv_list: { id: "kv_list", name: "Lists", used: usage.kv_list || 0, limit: QUOTAS.kv_list, percentage: (((usage.kv_list || 0) / QUOTAS.kv_list) * 100).toFixed(2), unit: "Req", period: "日結算" },
 
           // --- 新指標封裝 (預留至前端調用) ---
-          workers_ai_neurons: { id: "workers_ai_neurons", name: "AI Neurons", used: usage.workers_ai_neurons || 0, limit: QUOTAS.workers_ai_neurons, percentage: (((usage.workers_ai_neurons || 0) / QUOTAS.workers_ai_neurons) * 100).toFixed(2), unit: "Neurons", period: "日結算" },
-          vectorize_requests: { id: "vectorize_requests", name: "Vectorize Requests", used: usage.vectorize_requests || 0, limit: QUOTAS.vectorize_requests, percentage: (((usage.vectorize_requests || 0) / QUOTAS.vectorize_requests) * 100).toFixed(2), unit: "Req", period: "月結算" },
-          r2_storage_bytes: { id: "r2_storage_bytes", name: "R2 Total Storage", used: (usage.r2_storage_bytes / (1024 * 1024 * 1024)).toFixed(2), limit: 10, percentage: (((usage.r2_storage_bytes / (1024 * 1024 * 1024)) / 10) * 100).toFixed(2), unit: "GB", period: "總額" },
-          turnstile_solves: { id: "turnstile_solves", name: "Turnstile Solved", used: usage.turnstile_solves || 0, limit: 10000, percentage: 0, unit: "Req", period: "日結算" },
-          image_resizing_requests: { id: "image_resizing_requests", name: "Image Resizing", used: usage.image_resizing_requests || 0, limit: 100000, percentage: (((usage.image_resizing_requests || 0) / 100000) * 100).toFixed(2), unit: "Req", period: "月結算" }
+          workers_ai_neurons: { 
+            id: "workers_ai_neurons", 
+            name: "AI Neurons", 
+            used: usage.workers_ai_neurons, 
+            limit: QUOTAS.workers_ai_neurons, 
+            percentage: usage.workers_ai_neurons === "N.A" ? 0 : ((usage.workers_ai_neurons / QUOTAS.workers_ai_neurons) * 100).toFixed(2), 
+            unit: "Neurons", 
+            period: "日結算" 
+          },
+          vectorize_requests: { 
+            id: "vectorize_requests", 
+            name: "Vectorize Requests", 
+            used: usage.vectorize_requests, 
+            limit: QUOTAS.vectorize_requests, 
+            percentage: usage.vectorize_requests === "N.A" ? 0 : ((usage.vectorize_requests / QUOTAS.vectorize_requests) * 100).toFixed(2), 
+            unit: "Req", 
+            period: "月結算" 
+          },
+          r2_storage_bytes: { 
+            id: "r2_storage_bytes", 
+            name: "R2 Total Storage", 
+            used: usage.r2_storage_bytes === "N.A" ? "N.A" : (usage.r2_storage_bytes / (1024 * 1024 * 1024)).toFixed(2), 
+            limit: 10, 
+            percentage: usage.r2_storage_bytes === "N.A" ? 0 : (((usage.r2_storage_bytes / (1024 * 1024 * 1024)) / 10) * 100).toFixed(2), 
+            unit: "GB", 
+            period: "總額" 
+          },
+          turnstile_solves: { 
+            id: "turnstile_solves", 
+            name: "Turnstile Solved", 
+            used: usage.turnstile_solves, 
+            limit: 10000, 
+            percentage: 0, 
+            unit: "Req", 
+            period: "7日累計" 
+          },
+          image_resizing_requests: { 
+            id: "image_resizing_requests", 
+            name: "Image Resizing", 
+            used: usage.image_resizing_requests, 
+            limit: 100000, 
+            percentage: usage.image_resizing_requests === "N.A" ? 0 : ((usage.image_resizing_requests / 100000) * 100).toFixed(2), 
+            unit: "Req", 
+            period: "月結算" 
+          }
         };
 
         const resultData = JSON.stringify({
@@ -211,12 +247,13 @@ async function fetchCloudflareUsage(apiToken, accountId) {
   // 將統計起點改為 UTC 午夜，即可精準對齊官方數據與剩餘額度
   const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const startOf7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const fetchGraphQL = async (queryText) => {
     const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
       headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query: queryText, variables: { accountId, startOfDay, startOfMonth } })
+      body: JSON.stringify({ query: queryText, variables: { accountId, startOfDay, startOfMonth, startOf7Days, startDateOfMonth: startOfMonth.split('T')[0] } })
     });
     const json = await res.json();
     if (json.errors) throw new Error(JSON.stringify(json.errors));
@@ -236,11 +273,11 @@ async function fetchCloudflareUsage(apiToken, accountId) {
         }
       }
     `,
-    ai: `query($accountId: String!, $startOfDay: String!) { viewer { accounts(filter: {accountTag: $accountId}) { workersAIInvocationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) { sum { neurons } } } } }`,
-    vectorize: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { vectorizeOperationsAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { sum { requests } } } } }`,
+    ai: `query($accountId: String!, $startOfDay: String!) { viewer { accounts(filter: {accountTag: $accountId}) { aiInferenceAdaptiveGroups(limit: 1, filter: {datetime_geq: $startOfDay}) { count } } } }`,
+    vectorize: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { vectorizeQueriesAdaptiveGroups(limit: 1, filter: {datetime_geq: $startOfMonth}) { sum { queryCount } } } } }`,
     r2_storage: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { r2StorageAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { max { payloadSize } } } } }`,
-    turnstile: `query($accountId: String!, $startOfDay: String!) { viewer { accounts(filter: {accountTag: $accountId}) { turnstileAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfDay}) { sum { solved } } } } }`,
-    images: `query($accountId: String!, $startOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { imageResizingAdaptiveGroups(limit: 10000, filter: {datetime_geq: $startOfMonth}) { sum { requests } } } } }`
+    turnstile: `query($accountId: String!, $startOf7Days: String!) { viewer { accounts(filter: {accountTag: $accountId}) { turnstileAdaptiveGroups(limit: 1, filter: {datetime_geq: $startOf7Days}) { count } } } }`,
+    images: `query($accountId: String!, $startDateOfMonth: String!) { viewer { accounts(filter: {accountTag: $accountId}) { imagesUniqueTransformations(limit: 100, filter: {date_geq: $startDateOfMonth}) { sum { uniqueTransformations } } } } }`
   };
 
   let workersRequests = 0;
@@ -289,29 +326,57 @@ async function fetchCloudflareUsage(apiToken, accountId) {
         else if (action === "delete") kvDelete += reqs;
         else if (action === "list") kvList += reqs;
       }
-    } else if (results[0].status === 'rejected') console.error(JSON.stringify({ error: results[0].reason?.message, context: "fetchCloudflareUsage:base" }));
+    }
 
-    // 解析新指標 (分別擷取，容錯處理)
-    if (results[1].status === 'fulfilled' && results[1].value) workersAINeurons = results[1].value.workersAIInvocationsAdaptiveGroups?.[0]?.sum?.neurons || 0;
-    else if (results[1].status === 'rejected') console.error(JSON.stringify({ error: results[1].reason?.message, context: "fetchCloudflareUsage:ai" }));
+    if (results[1].status === 'fulfilled' && results[1].value) {
+      const node = results[1].value.aiInferenceAdaptiveGroups;
+      if (node === undefined || node === null) workersAINeurons = "N.A";
+      else workersAINeurons = node[0]?.count || 0;
+    } else if (results[1].status === 'rejected') {
+      const msg = results[1].reason?.message || "";
+      if (msg.includes("unknown field")) workersAINeurons = "N.A";
+    }
 
-    if (results[2].status === 'fulfilled' && results[2].value) vectorizeRequests = results[2].value.vectorizeOperationsAdaptiveGroups?.[0]?.sum?.requests || 0;
-    else if (results[2].status === 'rejected') console.error(JSON.stringify({ error: results[2].reason?.message, context: "fetchCloudflareUsage:vectorize" }));
+    if (results[2].status === 'fulfilled' && results[2].value) {
+      const node = results[2].value.vectorizeQueriesAdaptiveGroups;
+      if (node === undefined || node === null) vectorizeRequests = "N.A";
+      else vectorizeRequests = node[0]?.sum?.queryCount || 0;
+    } else if (results[2].status === 'rejected') {
+      const msg = results[2].reason?.message || "";
+      if (msg.includes("unknown field")) vectorizeRequests = "N.A";
+    }
 
-    if (results[3].status === 'fulfilled' && results[3].value) r2StorageBytes = results[3].value.r2StorageAdaptiveGroups?.[0]?.max?.payloadSize || 0;
-    else if (results[3].status === 'rejected') console.error(JSON.stringify({ error: results[3].reason?.message, context: "fetchCloudflareUsage:r2_storage" }));
+    if (results[3].status === 'fulfilled' && results[3].value) {
+      const node = results[3].value.r2StorageAdaptiveGroups;
+      if (node === undefined || node === null) r2StorageBytes = "N.A";
+      else r2StorageBytes = node[0]?.max?.payloadSize || 0;
+    } else if (results[3].status === 'rejected') {
+      const msg = results[3].reason?.message || "";
+      if (msg.includes("unknown field")) r2StorageBytes = "N.A";
+    }
 
-    if (results[4].status === 'fulfilled' && results[4].value) turnstileSolves = results[4].value.turnstileAdaptiveGroups?.[0]?.sum?.solved || 0;
-    else if (results[4].status === 'rejected') console.error(JSON.stringify({ error: results[4].reason?.message, context: "fetchCloudflareUsage:turnstile" }));
+    if (results[4].status === 'fulfilled' && results[4].value) {
+      const node = results[4].value.turnstileAdaptiveGroups;
+      if (node === undefined || node === null) turnstileSolves = "N.A";
+      else turnstileSolves = node.reduce((acc, g) => acc + (g.count || 0), 0);
+    } else if (results[4].status === 'rejected') {
+      const msg = results[4].reason?.message || "";
+      if (msg.includes("unknown field")) turnstileSolves = "N.A";
+    }
 
-    if (results[5].status === 'fulfilled' && results[5].value) imageResizingRequests = results[5].value.imageResizingAdaptiveGroups?.[0]?.sum?.requests || 0;
-    else if (results[5].status === 'rejected') console.error(JSON.stringify({ error: results[5].reason?.message, context: "fetchCloudflareUsage:images" }));
+    if (results[5].status === 'fulfilled' && results[5].value) {
+      const node = results[5].value.imagesUniqueTransformations;
+      if (node === undefined || node === null) imageResizingRequests = "N.A";
+      else imageResizingRequests = node.reduce((acc, t) => acc + (t.sum?.uniqueTransformations || 0), 0);
+    } else if (results[5].status === 'rejected') {
+      const msg = results[5].reason?.message || "";
+      if (msg.includes("unknown field")) imageResizingRequests = "N.A";
+    }
 
   } catch (err) {
     console.error(JSON.stringify({ error: err.message, context: "fetchCloudflareUsage", stack: err.stack }));
   }
 
-  // 取得 D1 Database 總數量 (REST API)
   let d1Databases = 0;
   try {
     const d1Res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database`, {
@@ -324,11 +389,8 @@ async function fetchCloudflareUsage(apiToken, accountId) {
     console.error(JSON.stringify({ error: err.message, context: "fetchD1Databases", stack: err.stack }));
   }
 
-  // 回傳前端完整的結構化數據
   return {
     workers_requests: workersRequests,
-    // workers_observability: 0, // 註解說明：Cloudflare API 未開放第三方呼叫 Observability 數據，在 CF 官方正式支援前不用。
-    // workers_build: 0, // 註解說明：Build Minutes 官方無穩定 API，在 CF 官方正式支援前不用。
     d1_databases: d1Databases,
     d1_rows_read: d1RowsRead,
     d1_rows_written: d1RowsWritten,
@@ -395,7 +457,6 @@ function getHtmlContent() {
         .stat-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 0.25rem; }
         .category-container { margin-bottom: 2.5rem; }
         .category-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: var(--text-primary); padding-bottom: 0.5rem; border-bottom: 1px solid var(--card-border); }
-        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -423,7 +484,6 @@ function getHtmlContent() {
             const container = document.getElementById("dashboard-data");
             container.innerHTML = "";
             
-            // 梳理指標的分類：對齊官方儀表板介面的大項目與分類
             const categories = {
                 "Workers & Pages": [data.workers_requests],
                 "R2 Object Storage": [data.r2_storage_bytes, data.r2_class_a, data.r2_class_b],
@@ -440,23 +500,28 @@ function getHtmlContent() {
                 
                 items.forEach(item => {
                     if (!item) return;
-                    const perc = parseFloat(item.percentage);
+                    const isNA = item.used === "N.A";
+                    const perc = isNA ? 0 : parseFloat(item.percentage);
                     let statusClass = "";
 
                     if (category === "AI & Vector") statusClass = "ai";
                     else if (perc >= 95) statusClass = "danger";
                     else if (perc >= 80) statusClass = "warning";
                     
+                    const usedDisplay = isNA ? "N.A" : Number(item.used).toLocaleString();
+                    const limitDisplay = Number(item.limit).toLocaleString();
+                    const percDisplay = isNA ? "N.A" : perc + "%";
+
                     sectionContent += \`
                         <div class="glass-card">
                             <div class="card-header">
                                 <span style="font-weight:600">\${item.name}<span class="period-tag">\${item.period}</span></span>
-                                <span class="percentage-badge" style="\${perc >= 80 ? 'color:white; border-color:transparent; background:red' : ''}">\${perc}%</span>
+                                <span class="percentage-badge" style="\${perc >= 80 ? 'color:white; border-color:transparent; background:red' : ''}">\${percDisplay}</span>
                             </div>
                             <div class="progress-track"><div class="progress-bar \${statusClass}" style="width:\${Math.min(perc, 100)}%"></div></div>
                             <div class="stats-row">
-                                <div><div class="stat-label">已使用</div><div>\${Number(item.used).toLocaleString()} \${item.unit}</div></div>
-                                <div style="text-align:right"><div class="stat-label">額度</div><div>\${Number(item.limit).toLocaleString()} \${item.unit}</div></div>
+                                <div><div class="stat-label">已使用</div><div>\${usedDisplay} \${item.unit}</div></div>
+                                <div style="text-align:right"><div class="stat-label">額度</div><div>\${limitDisplay} \${item.unit}</div></div>
                             </div>
                         </div>\`;
                 });
