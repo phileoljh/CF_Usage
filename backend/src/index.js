@@ -45,7 +45,7 @@ export default {
     }
 
     // 條件三：攔截不支援的 HTTP Method (如 HEAD) 防護爬蟲
-    if (request.method !== "GET" && request.method !== "POST") {
+    if (request.method !== "GET" && request.method !== "POST" && request.method !== "HEAD") {
       return new Response(null, { status: 405, statusText: "Method Not Allowed" });
     }
 
